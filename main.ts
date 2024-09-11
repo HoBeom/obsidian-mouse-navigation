@@ -58,9 +58,14 @@ export default class GestureNav extends Plugin {
 	async saveSettings() {
 		await this.saveData(this.settings);
 	}
+
 	private overlay: HTMLElement | null = null; // Declare overlay at the class level
 	private currentGesture: 'left' | 'right' | 'up' | 'down' | null = null; // Declare currentGesture at the class level
 	
+	private canvas: HTMLCanvasElement | null = null;
+	private ctx: CanvasRenderingContext2D | null = null;
+	private drawing = false; // Keep track if we are currently drawing
+
 	private registerEvents(currentWindow: Window) {
 		const doc: Document = currentWindow.document;
 		
@@ -80,8 +85,9 @@ export default class GestureNav extends Plugin {
 		// Detect when the right mouse button is pressed
 		this.registerDomEvent(doc, 'mousedown', (evt: MouseEvent) => {
 			if (evt.button === 2) {
+				this.startDrawing(evt);
 				globalMouseDown = true;
-				new Notice('Right Mouse Key Down!! Position: ' + evt.clientX + ' ' + evt.clientY);
+				// new Notice('Right Mouse Key Down!! Position: ' + evt.clientX + ' ' + evt.clientY);
 				startClientX = evt.clientX;
 				startClientY = evt.clientY;
 				this.currentGesture = null; // Reset the gesture
@@ -90,6 +96,9 @@ export default class GestureNav extends Plugin {
 
 		// Track mouse movement to detect gestures, but do not execute actions yet
 		this.registerDomEvent(doc, 'mousemove', (evt: MouseEvent) => {
+			if (this.drawing) {
+				this.draw(evt.clientX, evt.clientY);
+			}
 			if (globalMouseDown) {
 				const deltaX = evt.clientX - startClientX;
 				const deltaY = evt.clientY - startClientY;
@@ -111,13 +120,14 @@ export default class GestureNav extends Plugin {
 				}
 			}
 		});
-	
+
 
 		// When the right mouse button is released, execute the corresponding gesture action
 		this.registerDomEvent(doc, 'mouseup', (evt: MouseEvent) => {
+			this.stopDrawing();
 			if (evt.button === 2) {
 				globalMouseDown = false;
-				new Notice('Right Mouse Key UP!! Position: ' + evt.clientX + ' ' + evt.clientY);
+				// new Notice('Right Mouse Key UP!! Position: ' + evt.clientX + ' ' + evt.clientY);
 
 				// Execute actions based on the detected gesture
 				if (this.currentGesture === 'right') {
@@ -130,7 +140,7 @@ export default class GestureNav extends Plugin {
 					this.executeGestureAction('up', this.scrollToTop.bind(this));
 				} else {
 					// If no gesture is detected, show the context menu
-					new Notice('Show contextmenu');
+					// new Notice('Show contextmenu');
 					doc.elementFromPoint(evt.clientX, evt.clientY).dispatchEvent(new MouseEvent('contextmenu', {
 						bubbles: true, 
 						cancelable: true, 
@@ -146,7 +156,63 @@ export default class GestureNav extends Plugin {
 		});
 
 	}
+
+	private startDrawing(evt: MouseEvent) {
+		this.drawing = true;
 	
+		// Create a canvas if it doesn't exist
+		if (!this.canvas) {
+			this.canvas = document.createElement('canvas');
+			this.canvas.style.position = 'fixed';
+			this.canvas.style.top = '0';
+			this.canvas.style.left = '0';
+			this.canvas.width = window.innerWidth;
+			this.canvas.height = window.innerHeight;
+			this.canvas.style.zIndex = '9999';
+			this.canvas.style.pointerEvents = 'none'; // Ensure it doesn't block other events
+	
+			document.body.appendChild(this.canvas);
+			this.ctx = this.canvas.getContext('2d') as CanvasRenderingContext2D;
+	
+			// Get Obsidian's accent color from the active theme
+			const obsidianStyles = getComputedStyle(document.body);
+			const accentColor = obsidianStyles.getPropertyValue('--interactive-accent').trim();
+	
+			// Set the drawing style
+			if (this.ctx) {
+				this.ctx.strokeStyle = accentColor || 'red'; // Use the accent color, fallback to red if not found
+				this.ctx.lineWidth = 5; // Line thickness
+				this.ctx.lineJoin = 'round'; // Smooth corners
+				this.ctx.lineCap = 'round'; // Smooth line ends
+			}
+		}
+	
+		// Begin path at the current mouse position
+		if (this.ctx) {
+			this.ctx.beginPath();
+			this.ctx.moveTo(evt.clientX, evt.clientY);
+		}
+	}
+	
+
+	// Draw the line to the current mouse position
+	private draw(x: number, y: number) {
+		if (this.ctx) {
+			this.ctx.lineTo(x, y); // Draw line to this point
+			this.ctx.stroke(); // Actually render the line
+		}
+	}
+
+	// Stop drawing and remove the canvas if necessary
+	private stopDrawing() {
+		this.drawing = false;
+		if (this.canvas) {
+			document.body.removeChild(this.canvas); // Remove the canvas from the DOM
+			this.canvas = null;
+			this.ctx = null;
+		}
+	}
+
 	// Function to execute a gesture action and show overlay
 	private executeGestureAction(gesture: 'left' | 'right' | 'up' | 'down', action: () => void) {
 		this.showGestureOverlay(gesture);
