@@ -1,4 +1,14 @@
-import { App, Editor, View, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting } from 'obsidian';
+import {
+	App,
+	// Editor,
+	View,
+	MarkdownView,
+	// Modal,
+	// Notice,
+	Plugin,
+	PluginSettingTab,
+	Setting,
+} from 'obsidian';
 
 interface GestureNavSettings {
 	mySetting: string;
@@ -15,18 +25,18 @@ enum TrigerKey {
 
 const DEFAULT_SETTINGS: GestureNavSettings = {
 	mySetting: 'default',
-	trigerkey: TrigerKey.RIGHT_CLICK
-}
+	trigerkey: TrigerKey.RIGHT_CLICK,
+};
 
 const isPreview = (markdownView: MarkdownView) => {
 	const mode = markdownView.getMode();
-	return mode === "preview";
-}
+	return mode === 'preview';
+};
 
 const isSource = (markdownView: MarkdownView) => {
 	const mode = markdownView.getMode();
-	return mode === "source";
-}
+	return mode === 'source';
+};
 
 let globalMarkdownView: MarkdownView | null = null;
 let globalMouseDown = false;
@@ -37,22 +47,26 @@ export default class GestureNav extends Plugin {
 	async onload() {
 		await this.loadSettings();
 
-        this.registerEvent(
-            this.app.workspace.on("window-open", (newWindow: WorkspaceWindow) => this.registerEvents(newWindow.win))
-        );
-        this.registerEvents(window);
+		this.registerEvent(
+			this.app.workspace.on('window-open', (newWindow: WorkspaceWindow) =>
+				this.registerEvents(newWindow.win),
+			),
+		);
+		this.registerEvents(window);
 
-		this.addSettingTab(new SampleSettingTab(this.app, this));	
+		this.addSettingTab(new SampleSettingTab(this.app, this));
 
-        console.log("Loaded: Mouse Gesture Control")
+		console.log('Loaded: Mouse Gesture Control');
 	}
 
-	onunload() {
-
-	}
+	onunload() {}
 
 	async loadSettings() {
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+		this.settings = Object.assign(
+			{},
+			DEFAULT_SETTINGS,
+			await this.loadData(),
+		);
 	}
 
 	async saveSettings() {
@@ -61,14 +75,14 @@ export default class GestureNav extends Plugin {
 
 	private overlay: HTMLElement | null = null; // Declare overlay at the class level
 	private currentGesture: 'left' | 'right' | 'up' | 'down' | null = null; // Declare currentGesture at the class level
-	
+
 	private canvas: HTMLCanvasElement | null = null;
 	private ctx: CanvasRenderingContext2D | null = null;
 	private drawing = false; // Keep track if we are currently drawing
 
 	private registerEvents(currentWindow: Window) {
 		const doc: Document = currentWindow.document;
-		
+
 		// Prevent default right-click context menu
 		function preventDefault(event) {
 			if (event.isTrusted) {
@@ -77,11 +91,11 @@ export default class GestureNav extends Plugin {
 			}
 		}
 		doc.addEventListener('contextmenu', preventDefault, true);
-	
+
 		let startClientX = 0;
 		let startClientY = 0;
-		let gesture_margin = 100;
-		
+		const gesture_margin = 100;
+
 		// Detect when the right mouse button is pressed
 		this.registerDomEvent(doc, 'mousedown', (evt: MouseEvent) => {
 			if (evt.button === 2) {
@@ -102,14 +116,21 @@ export default class GestureNav extends Plugin {
 			if (globalMouseDown) {
 				const deltaX = evt.clientX - startClientX;
 				const deltaY = evt.clientY - startClientY;
-				let detectedGesture: 'left' | 'right' | 'up' | 'down' | null = null;
+				let detectedGesture: 'left' | 'right' | 'up' | 'down' | null =
+					null;
 
 				// Detect horizontal gestures (left/right)
-				if (Math.abs(deltaX) > gesture_margin && Math.abs(deltaY) < gesture_margin) {
+				if (
+					Math.abs(deltaX) > gesture_margin &&
+					Math.abs(deltaY) < gesture_margin
+				) {
 					detectedGesture = deltaX > 0 ? 'right' : 'left';
 				}
 				// Detect vertical gestures (up/down)
-				else if (Math.abs(deltaY) > gesture_margin && Math.abs(deltaX) < gesture_margin) {
+				else if (
+					Math.abs(deltaY) > gesture_margin &&
+					Math.abs(deltaX) < gesture_margin
+				) {
 					detectedGesture = deltaY > 0 ? 'down' : 'up';
 				}
 
@@ -121,7 +142,6 @@ export default class GestureNav extends Plugin {
 			}
 		});
 
-
 		// When the right mouse button is released, execute the corresponding gesture action
 		this.registerDomEvent(doc, 'mouseup', (evt: MouseEvent) => {
 			this.stopDrawing();
@@ -131,22 +151,37 @@ export default class GestureNav extends Plugin {
 
 				// Execute actions based on the detected gesture
 				if (this.currentGesture === 'right') {
-					this.executeGestureAction('right', () => window.history.forward());
+					this.executeGestureAction('right', () =>
+						window.history.forward(),
+					);
 				} else if (this.currentGesture === 'left') {
-					this.executeGestureAction('left', () => window.history.back());
+					this.executeGestureAction('left', () =>
+						window.history.back(),
+					);
 				} else if (this.currentGesture === 'down') {
-					this.executeGestureAction('down', this.scrollToBottom.bind(this));
+					this.executeGestureAction(
+						'down',
+						this.scrollToBottom.bind(this),
+					);
 				} else if (this.currentGesture === 'up') {
-					this.executeGestureAction('up', this.scrollToTop.bind(this));
+					this.executeGestureAction(
+						'up',
+						this.scrollToTop.bind(this),
+					);
 				} else {
 					// If no gesture is detected, show the context menu
 					// new Notice('Show contextmenu');
-					doc.elementFromPoint(evt.clientX, evt.clientY).dispatchEvent(new MouseEvent('contextmenu', {
-						bubbles: true, 
-						cancelable: true, 
-						clientX: evt.clientX, 
-						clientY: evt.clientY
-					}));
+					doc.elementFromPoint(
+						evt.clientX,
+						evt.clientY,
+					).dispatchEvent(
+						new MouseEvent('contextmenu', {
+							bubbles: true,
+							cancelable: true,
+							clientX: evt.clientX,
+							clientY: evt.clientY,
+						}),
+					);
 				}
 				this.currentGesture = null; // Reset gesture on mouse up
 				if (this.overlay) {
@@ -154,12 +189,11 @@ export default class GestureNav extends Plugin {
 				}
 			}
 		});
-
 	}
 
 	private startDrawing(evt: MouseEvent) {
 		this.drawing = true;
-	
+
 		// Create a canvas if it doesn't exist
 		if (!this.canvas) {
 			this.canvas = document.createElement('canvas');
@@ -170,14 +204,16 @@ export default class GestureNav extends Plugin {
 			this.canvas.height = window.innerHeight;
 			this.canvas.style.zIndex = '9999';
 			this.canvas.style.pointerEvents = 'none'; // Ensure it doesn't block other events
-	
+
 			document.body.appendChild(this.canvas);
 			this.ctx = this.canvas.getContext('2d') as CanvasRenderingContext2D;
-	
+
 			// Get Obsidian's accent color from the active theme
 			const obsidianStyles = getComputedStyle(document.body);
-			const accentColor = obsidianStyles.getPropertyValue('--interactive-accent').trim();
-	
+			const accentColor = obsidianStyles
+				.getPropertyValue('--interactive-accent')
+				.trim();
+
 			// Set the drawing style
 			if (this.ctx) {
 				this.ctx.strokeStyle = accentColor || 'red'; // Use the accent color, fallback to red if not found
@@ -186,14 +222,13 @@ export default class GestureNav extends Plugin {
 				this.ctx.lineCap = 'round'; // Smooth line ends
 			}
 		}
-	
+
 		// Begin path at the current mouse position
 		if (this.ctx) {
 			this.ctx.beginPath();
 			this.ctx.moveTo(evt.clientX, evt.clientY);
 		}
 	}
-	
 
 	// Draw the line to the current mouse position
 	private draw(x: number, y: number) {
@@ -214,7 +249,10 @@ export default class GestureNav extends Plugin {
 	}
 
 	// Function to execute a gesture action and show overlay
-	private executeGestureAction(gesture: 'left' | 'right' | 'up' | 'down', action: () => void) {
+	private executeGestureAction(
+		gesture: 'left' | 'right' | 'up' | 'down',
+		action: () => void,
+	) {
 		this.showGestureOverlay(gesture);
 		action(); // Execute the action (e.g., go forward, go back)
 	}
@@ -222,7 +260,7 @@ export default class GestureNav extends Plugin {
 		if (this.overlay) {
 			this.overlay.remove(); // Remove previous overlay before adding a new one
 		}
-	
+
 		this.overlay = document.createElement('div');
 		this.overlay.style.position = 'fixed';
 		this.overlay.style.top = '50%';
@@ -241,7 +279,7 @@ export default class GestureNav extends Plugin {
 		this.overlay.style.color = 'white';
 		this.overlay.style.textAlign = 'center';
 		this.overlay.style.fontSize = '36px'; // Make the arrow larger
-	
+
 		// Use Unicode arrows to represent the gesture
 		let arrowSymbol = '';
 		if (gesture === 'right') {
@@ -253,21 +291,26 @@ export default class GestureNav extends Plugin {
 		} else if (gesture === 'down') {
 			arrowSymbol = '↓'; // Down arrow
 		}
-	
+
 		// Add the arrow symbol to the overlay
 		const arrow = document.createElement('div');
 		arrow.innerText = arrowSymbol;
 		this.overlay.appendChild(arrow);
-	
+
 		// Add text below the arrow based on gesture direction
 		const text = document.createElement('div');
-		text.innerText = gesture === 'right' ? 'Next Page' : 
-						 gesture === 'left' ? 'Previous Page' : 
-						 gesture === 'up' ? 'Scroll Up' : 'Scroll Down';
+		text.innerText =
+			gesture === 'right'
+				? 'Next Page'
+				: gesture === 'left'
+					? 'Previous Page'
+					: gesture === 'up'
+						? 'Scroll Up'
+						: 'Scroll Down';
 		text.style.marginTop = '10px';
 		text.style.fontSize = '16px'; // Smaller font size for the text
 		this.overlay.appendChild(text);
-	
+
 		document.body.appendChild(this.overlay);
 	}
 
@@ -275,14 +318,16 @@ export default class GestureNav extends Plugin {
 		// get the current active view
 		let markdownView = this.app.workspace.getActiveViewOfType(MarkdownView);
 		// To distinguish whether the current view is hidden or not markdownView
-		let currentView = this.app.workspace.getActiveViewOfType(View) as MarkdownView;
+		const currentView = this.app.workspace.getActiveViewOfType(
+			View,
+		) as MarkdownView;
 		// solve the problem of closing always focus new tab setting
 		if (markdownView !== null) {
 			globalMarkdownView = markdownView;
 		} else {
 			// fix the plugin shutdown problem when the current view is not exist
-			if (currentView == null || currentView?.file?.extension == "md") {
-				markdownView = globalMarkdownView
+			if (currentView == null || currentView?.file?.extension == 'md') {
+				markdownView = globalMarkdownView;
 			}
 		}
 		return markdownView;
@@ -299,49 +344,49 @@ export default class GestureNav extends Plugin {
 			}, 200);
 			// not limited to the start of the editor text as with editor.exec("goStart");
 			editor.scrollTo(0, 0);
-			this.app.workspace.setActiveLeaf(markdownView!.leaf, {
+			this.app.workspace.setActiveLeaf(markdownView.leaf, {
 				focus: true,
 			});
 		} else {
 			isPreview(markdownView) && preview.applyScroll(0);
 		}
-		
 	}
 
 	private scrollToBottom = async () => {
 		const markdownView = this.getCurrentViewOfType();
-		
-		const file = this.app.workspace.getActiveFile()
-		const content = await (this.app as any).vault.cachedRead(file);
+
+		const file = this.app.workspace.getActiveFile();
+		const content = await (this.app as unknown).vault.cachedRead(file);
 		const lines = content.split('\n');
 		let numberOfLines = lines.length;
 		//in preview mode don't count empty lines at the end
 		if (markdownView.getMode() === 'preview') {
-			while (numberOfLines > 0 && lines[numberOfLines - 1].trim() === '') {
+			while (
+				numberOfLines > 0 &&
+				lines[numberOfLines - 1].trim() === ''
+			) {
 				numberOfLines--;
 			}
 		}
-		markdownView.currentMode.applyScroll((numberOfLines - 1))
-		
-	}
-
+		markdownView.currentMode.applyScroll(numberOfLines - 1);
+	};
 }
 
-class SampleModal extends Modal {
-	constructor(app: App) {
-		super(app);
-	}
+// class SampleModal extends Modal {
+// 	constructor(app: App) {
+// 		super(app);
+// 	}
 
-	onOpen() {
-		const {contentEl} = this;
-		contentEl.setText('Woah!');
-	}
+// 	onOpen() {
+// 		const { contentEl } = this;
+// 		contentEl.setText('Woah!');
+// 	}
 
-	onClose() {
-		const {contentEl} = this;
-		contentEl.empty();
-	}
-}
+// 	onClose() {
+// 		const { contentEl } = this;
+// 		contentEl.empty();
+// 	}
+// }
 
 class SampleSettingTab extends PluginSettingTab {
 	plugin: GestureNav;
@@ -352,37 +397,40 @@ class SampleSettingTab extends PluginSettingTab {
 	}
 
 	display(): void {
-		const {containerEl} = this;
+		const { containerEl } = this;
 
 		containerEl.empty();
 
 		new Setting(containerEl)
 			.setName('Setting #1')
-			.setDesc('It\'s a secret')
-			.addText(text => text
-				.setPlaceholder('Enter your secret')
-				.setValue(this.plugin.settings.mySetting)
-				.onChange(async (value) => {
-					this.plugin.settings.mySetting = value;
-					await this.plugin.saveSettings();
-				}));
+			.setDesc("It's a secret")
+			.addText((text) =>
+				text
+					.setPlaceholder('Enter your secret')
+					.setValue(this.plugin.settings.mySetting)
+					.onChange(async (value) => {
+						this.plugin.settings.mySetting = value;
+						await this.plugin.saveSettings();
+					}),
+			);
 
 		new Setting(containerEl)
 			.setName('Triger Mouse Key')
 			.setDesc('Select the mouse key to trigger the gesture')
-			.addDropdown(dropdown => dropdown
-				.addOptions({
-					// [TrigerKey.LEFT_CLICK]: 'Left Click',
-					[TrigerKey.RIGHT_CLICK]: 'Right Click',
-					// [TrigerKey.WHEEL_CLICK]: 'Wheel Click',
-					// [TrigerKey.DOUBLE_LEFT_CLICK]: 'Double Left Click',
-					// [TrigerKey.DOUBLE_RIGHT_CLICK]: 'Double Right Click'
-				})
-				.setValue(this.plugin.settings.trigerkey)
-				.onChange(async (value) => {
-					this.plugin.settings.trigerkey = value as TrigerKey;
-					await this.plugin.saveSettings();
-				}));
-
+			.addDropdown((dropdown) =>
+				dropdown
+					.addOptions({
+						// [TrigerKey.LEFT_CLICK]: 'Left Click',
+						[TrigerKey.RIGHT_CLICK]: 'Right Click',
+						// [TrigerKey.WHEEL_CLICK]: 'Wheel Click',
+						// [TrigerKey.DOUBLE_LEFT_CLICK]: 'Double Left Click',
+						// [TrigerKey.DOUBLE_RIGHT_CLICK]: 'Double Right Click'
+					})
+					.setValue(this.plugin.settings.trigerkey)
+					.onChange(async (value) => {
+						this.plugin.settings.trigerkey = value as TrigerKey;
+						await this.plugin.saveSettings();
+					}),
+			);
 	}
 }
