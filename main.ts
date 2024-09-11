@@ -58,101 +58,152 @@ export default class GestureNav extends Plugin {
 	async saveSettings() {
 		await this.saveData(this.settings);
 	}
-
-	 private registerEvents(currentWindow: Window) {
-        const doc: Document = currentWindow.document;
-
-		function preventDefault (event) {
+	private overlay: HTMLElement | null = null; // Declare overlay at the class level
+	private currentGesture: 'left' | 'right' | 'up' | 'down' | null = null; // Declare currentGesture at the class level
+	
+	private registerEvents(currentWindow: Window) {
+		const doc: Document = currentWindow.document;
+		
+		// Prevent default right-click context menu
+		function preventDefault(event) {
 			if (event.isTrusted) {
-			event.preventDefault();
-			event.stopPropagation();
+				event.preventDefault();
+				event.stopPropagation();
 			}
 		}
 		doc.addEventListener('contextmenu', preventDefault, true);
-
-		this.registerDomEvent(doc, 'click', (evt: MouseEvent) => {
-			new Notice('Click!! Position: '+ evt.clientX + ' ' + evt.clientY);
-		});
-		
-
-		// Right Click Event disable (show context menu)
-		// this.registerDomEvent(doc, 'contextmenu', (evt: MouseEvent) => {
-		// 	new Notice('Context menu event!! (Right Click) Position: '+ evt.clientX + ' ' + evt.clientY);
-		// 	evt.preventDefault();
-		// 	evt.stopPropagation();
-		// });
-		 
+	
 		let startClientX = 0;
 		let startClientY = 0;
+		let gesture_margin = 100;
+		
+		// Detect when the right mouse button is pressed
 		this.registerDomEvent(doc, 'mousedown', (evt: MouseEvent) => {
 			if (evt.button === 2) {
 				globalMouseDown = true;
-				new Notice('Right Mouse Key Down!! Position: '+ evt.clientX + ' ' + evt.clientY);
+				new Notice('Right Mouse Key Down!! Position: ' + evt.clientX + ' ' + evt.clientY);
 				startClientX = evt.clientX;
 				startClientY = evt.clientY;
+				this.currentGesture = null; // Reset the gesture
 			}
 		});
 
-		var gesture_margin = 100;
-		// trigger contextmenu when right click up
+		// Track mouse movement to detect gestures, but do not execute actions yet
+		this.registerDomEvent(doc, 'mousemove', (evt: MouseEvent) => {
+			if (globalMouseDown) {
+				const deltaX = evt.clientX - startClientX;
+				const deltaY = evt.clientY - startClientY;
+				let detectedGesture: 'left' | 'right' | 'up' | 'down' | null = null;
+
+				// Detect horizontal gestures (left/right)
+				if (Math.abs(deltaX) > gesture_margin && Math.abs(deltaY) < gesture_margin) {
+					detectedGesture = deltaX > 0 ? 'right' : 'left';
+				}
+				// Detect vertical gestures (up/down)
+				else if (Math.abs(deltaY) > gesture_margin && Math.abs(deltaX) < gesture_margin) {
+					detectedGesture = deltaY > 0 ? 'down' : 'up';
+				}
+
+				// If gesture has changed, update the overlay
+				if (detectedGesture !== this.currentGesture) {
+					this.currentGesture = detectedGesture;
+					this.showGestureOverlay(this.currentGesture); // Update overlay with the new gesture
+				}
+			}
+		});
+	
+
+		// When the right mouse button is released, execute the corresponding gesture action
 		this.registerDomEvent(doc, 'mouseup', (evt: MouseEvent) => {
 			if (evt.button === 2) {
 				globalMouseDown = false;
-				new Notice('Right Mouse Key UP!! Position: '+ evt.clientX + ' ' + evt.clientY);
-				if (Math.abs(evt.clientX - startClientX) > gesture_margin &&
-					Math.abs(evt.clientY - startClientY) < gesture_margin) {
-					// horizontal gesture
-					if (evt.clientX > startClientX) {
-						new Notice('Right Gesture!!');
-						// move forward page
-						window.history.forward();
-					}
-					else {
-						new Notice('Left Gesture!!');
-						// move back page
-						window.history.back();
-					}
+				new Notice('Right Mouse Key UP!! Position: ' + evt.clientX + ' ' + evt.clientY);
+
+				// Execute actions based on the detected gesture
+				if (this.currentGesture === 'right') {
+					this.executeGestureAction('right', () => window.history.forward());
+				} else if (this.currentGesture === 'left') {
+					this.executeGestureAction('left', () => window.history.back());
+				} else if (this.currentGesture === 'down') {
+					this.executeGestureAction('down', this.scrollToBottom.bind(this));
+				} else if (this.currentGesture === 'up') {
+					this.executeGestureAction('up', this.scrollToTop.bind(this));
+				} else {
+					// If no gesture is detected, show the context menu
+					new Notice('Show contextmenu');
+					doc.elementFromPoint(evt.clientX, evt.clientY).dispatchEvent(new MouseEvent('contextmenu', {
+						bubbles: true, 
+						cancelable: true, 
+						clientX: evt.clientX, 
+						clientY: evt.clientY
+					}));
 				}
-				else if (Math.abs(evt.clientX - startClientX) < gesture_margin &&
-					Math.abs(evt.clientY - startClientY) > gesture_margin) {
-					// vertical gesture
-					if (evt.clientY > startClientY) {
-						new Notice('Down Gesture!!');
-						this.scrollToBottom();
-					}
-					else {
-						new Notice('Up Gesture!!')
-						this.scrollToTop();						
-					}
-				}
-				else {
-					new Notice('Show contextmenu'+ (evt.clientX - startClientX) + ' ' + (evt.clientY - startClientY));
-					// trigger contextmenu
-					// doc.addEventListener('contextmenu', preventDefault, true);
-					doc.elementFromPoint(evt.clientX, evt.clientY).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: evt.clientX, clientY: evt.clientY}));
+				this.currentGesture = null; // Reset gesture on mouse up
+				if (this.overlay) {
+					this.overlay.remove(); // Remove overlay when mouse is released
 				}
 			}
 		});
 
-		// let clinetX = 0;
-		// let clinetY = 0;
-		// this.registerDomEvent(doc, 'drag', (evt: MouseEvent) => {
-		// 	if (evt.clientX !== clinetX && evt.clientY !== clinetY) {
-		// 		clinetX = evt.clientX;
-		// 		clinetY = evt.clientY;
-		// 		new Notice('Drag!! Position: '+ evt.clientX + ' ' + evt.clientY);
-		// 	}
-		// });
-
-		// this.registerDomEvent(doc, 'dragend', (evt: MouseEvent) => {
-		// 	new Notice('Drag End!! Position: '+ evt.clientX + ' ' + evt.clientY);
-		// });
-
-		// this.registerDomEvent(doc, 'dragenter', (evt: MouseEvent) => {
-		// 	new Notice('Drag Enter!! Position: '+ evt.clientX + ' ' + evt.clientY);
-		// });
-
-    }
+	}
+	
+	// Function to execute a gesture action and show overlay
+	private executeGestureAction(gesture: 'left' | 'right' | 'up' | 'down', action: () => void) {
+		this.showGestureOverlay(gesture);
+		action(); // Execute the action (e.g., go forward, go back)
+	}
+	private showGestureOverlay(gesture: 'left' | 'right' | 'up' | 'down') {
+		if (this.overlay) {
+			this.overlay.remove(); // Remove previous overlay before adding a new one
+		}
+	
+		this.overlay = document.createElement('div');
+		this.overlay.style.position = 'fixed';
+		this.overlay.style.top = '50%';
+		this.overlay.style.left = '50%';
+		this.overlay.style.transform = 'translate(-50%, -50%)';
+		this.overlay.style.zIndex = '1000';
+		this.overlay.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
+		this.overlay.style.borderRadius = '50%'; // Make the overlay a perfect circle
+		this.overlay.style.width = '150px'; // Equal width and height for a perfect circle
+		this.overlay.style.height = '150px';
+		this.overlay.style.display = 'flex';
+		this.overlay.style.flexDirection = 'column';
+		this.overlay.style.alignItems = 'center';
+		this.overlay.style.justifyContent = 'center';
+		this.overlay.style.padding = '20px';
+		this.overlay.style.color = 'white';
+		this.overlay.style.textAlign = 'center';
+		this.overlay.style.fontSize = '36px'; // Make the arrow larger
+	
+		// Use Unicode arrows to represent the gesture
+		let arrowSymbol = '';
+		if (gesture === 'right') {
+			arrowSymbol = '→'; // Right arrow
+		} else if (gesture === 'left') {
+			arrowSymbol = '←'; // Left arrow
+		} else if (gesture === 'up') {
+			arrowSymbol = '↑'; // Up arrow
+		} else if (gesture === 'down') {
+			arrowSymbol = '↓'; // Down arrow
+		}
+	
+		// Add the arrow symbol to the overlay
+		const arrow = document.createElement('div');
+		arrow.innerText = arrowSymbol;
+		this.overlay.appendChild(arrow);
+	
+		// Add text below the arrow based on gesture direction
+		const text = document.createElement('div');
+		text.innerText = gesture === 'right' ? 'Next Page' : 
+						 gesture === 'left' ? 'Previous Page' : 
+						 gesture === 'up' ? 'Scroll Up' : 'Scroll Down';
+		text.style.marginTop = '10px';
+		text.style.fontSize = '16px'; // Smaller font size for the text
+		this.overlay.appendChild(text);
+	
+		document.body.appendChild(this.overlay);
+	}
 
 	public getCurrentViewOfType() {
 		// get the current active view
