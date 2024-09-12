@@ -3,7 +3,7 @@
 	"name": "Mouse Navigation",
 	"version": "1.0.0",
 	"minAppVersion": "0.15.0",
-	"description": "Demonstrates some of the capabilities of the Obsidian API.",
+	"description": "Enables smooth navigation in Obsidian using mouse gestures for scrolling and switching pages.",
 	"author": "HoBeomJeon",
 	"repo": "hobeom/obsidian-mouse-navigation",
 	"authorUrl": "https://github.com/hobeom",
