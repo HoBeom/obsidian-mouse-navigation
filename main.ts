@@ -51,9 +51,7 @@ export default class GestureNav extends Plugin {
 		);
 		this.registerEvents(window);
 
-		this.addSettingTab(new SampleSettingTab(this.app, this));
-
-		console.log('Loaded: Mouse Gesture Control');
+		this.addSettingTab(new GestureNavSettingTab(this.app, this));
 	}
 
 	onunload() {}
@@ -369,23 +367,8 @@ export default class GestureNav extends Plugin {
 	};
 }
 
-// class SampleModal extends Modal {
-// 	constructor(app: App) {
-// 		super(app);
-// 	}
 
-// 	onOpen() {
-// 		const { contentEl } = this;
-// 		contentEl.setText('Woah!');
-// 	}
-
-// 	onClose() {
-// 		const { contentEl } = this;
-// 		contentEl.empty();
-// 	}
-// }
-
-class SampleSettingTab extends PluginSettingTab {
+class GestureNavSettingTab extends PluginSettingTab {
 	plugin: GestureNav;
 
 	constructor(app: App, plugin: GestureNav) {
@@ -399,7 +382,7 @@ class SampleSettingTab extends PluginSettingTab {
 		containerEl.empty();
 
 		new Setting(containerEl)
-			.setName('Triger Mouse Key')
+			.setName('Triger mouse key')
 			.setDesc('Select the mouse key to trigger the gesture')
 			.addDropdown((dropdown) =>
 				dropdown
