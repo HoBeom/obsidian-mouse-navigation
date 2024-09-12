@@ -28,6 +28,8 @@
 
 Once installed, simply hold the **right mouse button** and move your mouse in the desired direction to trigger the gesture action (e.g., move left to go back, right to go forward). 
 
+![Demo](MouseNavTest.gif)
+
 ### Development Plans
 
 We are working on introducing support for more diverse mouse gestures and allowing users to fully customize which actions are triggered by specific gestures. Stay tuned for updates that will make navigation even more flexible and powerful!
