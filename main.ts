@@ -94,7 +94,7 @@ export default class GestureNav extends Plugin {
 
 		let startClientX = 0;
 		let startClientY = 0;
-		const gesture_margin = 100;
+		const gesture_margin = 75;
 
 		// Detect when the right mouse button is pressed
 		this.registerDomEvent(doc, 'mousedown', (evt: MouseEvent) => {
@@ -202,7 +202,7 @@ export default class GestureNav extends Plugin {
 			this.canvas.style.left = '0';
 			this.canvas.width = window.innerWidth;
 			this.canvas.height = window.innerHeight;
-			this.canvas.style.zIndex = '9999';
+			this.canvas.style.zIndex = '1000';
 			this.canvas.style.pointerEvents = 'none'; // Ensure it doesn't block other events
 
 			document.body.appendChild(this.canvas);
@@ -266,11 +266,11 @@ export default class GestureNav extends Plugin {
 		this.overlay.style.top = '50%';
 		this.overlay.style.left = '50%';
 		this.overlay.style.transform = 'translate(-50%, -50%)';
-		this.overlay.style.zIndex = '1000';
+		this.overlay.style.zIndex = '1001';
 		this.overlay.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
 		this.overlay.style.borderRadius = '50%'; // Make the overlay a perfect circle
-		this.overlay.style.width = '150px'; // Equal width and height for a perfect circle
-		this.overlay.style.height = '150px';
+		this.overlay.style.width = '175px'; // Equal width and height for a perfect circle
+		this.overlay.style.height = '175px';
 		this.overlay.style.display = 'flex';
 		this.overlay.style.flexDirection = 'column';
 		this.overlay.style.alignItems = 'center';
@@ -282,14 +282,22 @@ export default class GestureNav extends Plugin {
 
 		// Use Unicode arrows to represent the gesture
 		let arrowSymbol = '';
+		let actionText = '';
 		if (gesture === 'right') {
 			arrowSymbol = '→'; // Right arrow
+			actionText = 'Next Page';
 		} else if (gesture === 'left') {
 			arrowSymbol = '←'; // Left arrow
+			actionText = 'Previous Page';
 		} else if (gesture === 'up') {
 			arrowSymbol = '↑'; // Up arrow
+			actionText = 'Scroll to Top';
 		} else if (gesture === 'down') {
 			arrowSymbol = '↓'; // Down arrow
+			actionText = 'Scroll to Bottom';
+		} else {
+			arrowSymbol = '✕'; // Cancel symbol
+			this.overlay.style.fontSize = '50px'; 
 		}
 
 		// Add the arrow symbol to the overlay
@@ -299,14 +307,7 @@ export default class GestureNav extends Plugin {
 
 		// Add text below the arrow based on gesture direction
 		const text = document.createElement('div');
-		text.innerText =
-			gesture === 'right'
-				? 'Next Page'
-				: gesture === 'left'
-					? 'Previous Page'
-					: gesture === 'up'
-						? 'Scroll Up'
-						: 'Scroll Down';
+		text.innerText = actionText;
 		text.style.marginTop = '10px';
 		text.style.fontSize = '16px'; // Smaller font size for the text
 		this.overlay.appendChild(text);
