@@ -16,11 +16,8 @@ interface GestureNavSettings {
 }
 
 enum TrigerKey {
-	// LEFT_CLICK = 'left_click',
-	RIGHT_CLICK = 'right_click',
-	// WHEEL_CLICK = 'wheel_click',
-	// DOUBLE_LEFT_CLICK = 'double_left_click',
-	// DOUBLE_RIGHT_CLICK = 'double_right_click'
+	RIGHT_CLICK = 2,
+	WHEEL_CLICK = 1,
 }
 
 const DEFAULT_SETTINGS: GestureNavSettings = {
@@ -98,7 +95,7 @@ export default class GestureNav extends Plugin {
 
 		// Detect when the right mouse button is pressed
 		this.registerDomEvent(doc, 'mousedown', (evt: MouseEvent) => {
-			if (evt.button === 2) {
+			if (evt.button === this.settings.trigerkey) {
 				this.startDrawing(evt);
 				globalMouseDown = true;
 				// new Notice('Right Mouse Key Down!! Position: ' + evt.clientX + ' ' + evt.clientY);
@@ -145,7 +142,7 @@ export default class GestureNav extends Plugin {
 		// When the right mouse button is released, execute the corresponding gesture action
 		this.registerDomEvent(doc, 'mouseup', (evt: MouseEvent) => {
 			this.stopDrawing();
-			if (evt.button === 2) {
+			if (evt.button === this.settings.trigerkey) {
 				globalMouseDown = false;
 				// new Notice('Right Mouse Key UP!! Position: ' + evt.clientX + ' ' + evt.clientY);
 
@@ -242,23 +239,22 @@ export default class GestureNav extends Plugin {
 	private stopDrawing() {
 		this.drawing = false;
 		if (this.canvas) {
-			document.body.removeChild(this.canvas); // Remove the canvas from the DOM
+			document.body.removeChild(this.canvas);
 			this.canvas = null;
 			this.ctx = null;
 		}
 	}
 
-	// Function to execute a gesture action and show overlay
 	private executeGestureAction(
 		gesture: 'left' | 'right' | 'up' | 'down',
 		action: () => void,
 	) {
 		this.showGestureOverlay(gesture);
-		action(); // Execute the action (e.g., go forward, go back)
+		action();
 	}
 	private showGestureOverlay(gesture: 'left' | 'right' | 'up' | 'down') {
 		if (this.overlay) {
-			this.overlay.remove(); // Remove previous overlay before adding a new one
+			this.overlay.remove(); 
 		}
 
 		this.overlay = document.createElement('div');
@@ -268,8 +264,8 @@ export default class GestureNav extends Plugin {
 		this.overlay.style.transform = 'translate(-50%, -50%)';
 		this.overlay.style.zIndex = '1001';
 		this.overlay.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
-		this.overlay.style.borderRadius = '50%'; // Make the overlay a perfect circle
-		this.overlay.style.width = '175px'; // Equal width and height for a perfect circle
+		this.overlay.style.borderRadius = '50%'; 
+		this.overlay.style.width = '175px'; 
 		this.overlay.style.height = '175px';
 		this.overlay.style.display = 'flex';
 		this.overlay.style.flexDirection = 'column';
@@ -278,7 +274,7 @@ export default class GestureNav extends Plugin {
 		this.overlay.style.padding = '20px';
 		this.overlay.style.color = 'white';
 		this.overlay.style.textAlign = 'center';
-		this.overlay.style.fontSize = '36px'; // Make the arrow larger
+		this.overlay.style.fontSize = '36px'; 
 
 		// Use Unicode arrows to represent the gesture
 		let arrowSymbol = '';
@@ -403,29 +399,13 @@ class SampleSettingTab extends PluginSettingTab {
 		containerEl.empty();
 
 		new Setting(containerEl)
-			.setName('Setting #1')
-			.setDesc("It's a secret")
-			.addText((text) =>
-				text
-					.setPlaceholder('Enter your secret')
-					.setValue(this.plugin.settings.mySetting)
-					.onChange(async (value) => {
-						this.plugin.settings.mySetting = value;
-						await this.plugin.saveSettings();
-					}),
-			);
-
-		new Setting(containerEl)
 			.setName('Triger Mouse Key')
 			.setDesc('Select the mouse key to trigger the gesture')
 			.addDropdown((dropdown) =>
 				dropdown
 					.addOptions({
-						// [TrigerKey.LEFT_CLICK]: 'Left Click',
 						[TrigerKey.RIGHT_CLICK]: 'Right Click',
 						// [TrigerKey.WHEEL_CLICK]: 'Wheel Click',
-						// [TrigerKey.DOUBLE_LEFT_CLICK]: 'Double Left Click',
-						// [TrigerKey.DOUBLE_RIGHT_CLICK]: 'Double Right Click'
 					})
 					.setValue(this.plugin.settings.trigerkey)
 					.onChange(async (value) => {

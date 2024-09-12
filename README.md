@@ -2,15 +2,15 @@
 
 ## Overview
 
-**Mouse Navigation** is an intuitive and powerful plugin for Obsidian that enhances navigation through mouse gestures. Whether you're scrolling through pages, switching between documents, or exploring your notes, this plugin provides a fluid experience by letting you control actions with simple mouse movements.
+**Mouse Navigation** is an intuitive and powerful plugin for Obsidian that enhances navigation through mouse gestures. Whether you're scrolling through pages, switching between documents, this plugin provides a fluid experience by letting you control actions with simple mouse movements.
 
 ## Features
 
-- **Customizable Mouse Gestures**: Navigate using right-click mouse gestures to move forward, backward, or scroll up/down.
+- **Customizable Mouse Gestures**: Currently, navigation is performed using right-click mouse gestures to move forward, backward, or scroll up/down. 
 - **Visual Feedback**: Gesture actions are visually represented on the screen with smooth animations.
 - **Draw-on-Screen**: As you perform gestures, see your mouse movements tracked like a pencil on the screen, providing clear visual feedback.
-- **Flexible Gesture Settings**: Choose from different mouse buttons to trigger gestures, and customize the behavior to your liking.
-  
+- **Flexible Gesture Settings**: Currently, gestures are fixed, but plans are in place for customizable gestures in future updates, allowing users to personalize their experience.
+
 ## Key Capabilities
 
 - **Next/Previous Navigation**: Use left and right gestures to switch between documents.
@@ -26,4 +26,8 @@
 
 ## Usage
 
-Once installed, simply hold the right mouse button and move your mouse in the desired direction to trigger the gesture action (e.g., move left to go back, right to go forward). You can customize which mouse button triggers gestures in the plugin settings.
+Once installed, simply hold the **right mouse button** and move your mouse in the desired direction to trigger the gesture action (e.g., move left to go back, right to go forward). 
+
+### Development Plans
+
+We are working on introducing support for more diverse mouse gestures and allowing users to fully customize which actions are triggered by specific gestures. Stay tuned for updates that will make navigation even more flexible and powerful!
