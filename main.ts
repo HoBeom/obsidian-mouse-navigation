@@ -1,9 +1,7 @@
 import {
 	App,
-	// Editor,
 	View,
 	MarkdownView,
-	// Modal,
 	// Notice,
 	Plugin,
 	PluginSettingTab,
@@ -13,6 +11,10 @@ import {
 interface GestureNavSettings {
 	mySetting: string;
 	trigerkey: TrigerKey;
+	enableDrawing: boolean;
+	strokeColor: string; 
+	customStrokeColor: string; 
+	lineWidth: number;   
 }
 
 enum TrigerKey {
@@ -23,6 +25,10 @@ enum TrigerKey {
 const DEFAULT_SETTINGS: GestureNavSettings = {
 	mySetting: 'default',
 	trigerkey: TrigerKey.RIGHT_CLICK,
+	enableDrawing: true, 
+	strokeColor: 'accent', 
+	customStrokeColor: '', 
+	lineWidth: 5,          
 };
 
 const isPreview = (markdownView: MarkdownView) => {
@@ -54,7 +60,23 @@ export default class GestureNav extends Plugin {
 		this.addSettingTab(new GestureNavSettingTab(this.app, this));
 	}
 
-	onunload() {}
+	onunload() {
+		// Remove the canvas if it exists
+		if (this.canvas) {
+			document.body.removeChild(this.canvas);
+			this.canvas = null;
+			this.ctx = null;
+		}
+
+		// Remove the overlay if it exists
+		if (this.overlay) {
+			this.overlay.remove();
+			this.overlay = null;
+		}
+
+		// Reset drawing state
+		this.drawing = false;
+	}
 
 	async loadSettings() {
 		this.settings = Object.assign(
@@ -185,56 +207,66 @@ export default class GestureNav extends Plugin {
 			}
 		});
 	}
-
 	private startDrawing(evt: MouseEvent) {
-		this.drawing = true;
+		// Check if drawing is enabled
+		if (!this.settings.enableDrawing) {
+			return; // Exit early if drawing is disabled
+		}
 
+		this.drawing = true;
+	
 		// Create a canvas if it doesn't exist
 		if (!this.canvas) {
 			this.canvas = document.createElement('canvas');
-			this.canvas.style.position = 'fixed';
-			this.canvas.style.top = '0';
-			this.canvas.style.left = '0';
+			this.canvas.classList.add('gesture-canvas'); 
+	
 			this.canvas.width = window.innerWidth;
 			this.canvas.height = window.innerHeight;
-			this.canvas.style.zIndex = '1000';
-			this.canvas.style.pointerEvents = 'none'; // Ensure it doesn't block other events
-
+	
 			document.body.appendChild(this.canvas);
 			this.ctx = this.canvas.getContext('2d') as CanvasRenderingContext2D;
-
-			// Get Obsidian's accent color from the active theme
-			const obsidianStyles = getComputedStyle(document.body);
-			const accentColor = obsidianStyles
-				.getPropertyValue('--interactive-accent')
-				.trim();
-
-			// Set the drawing style
+	
+			let strokeColor = this.settings.strokeColor;
+			if (strokeColor === 'accent') {
+				const obsidianStyles = getComputedStyle(document.body);
+				strokeColor = obsidianStyles.getPropertyValue('--interactive-accent').trim();
+			} else if (strokeColor === 'custom') {
+				strokeColor = this.settings.customStrokeColor || '#000000'; // Fallback to black if custom color is not provided
+			}
+	
+			// Set the drawing style using the selected stroke color
 			if (this.ctx) {
-				this.ctx.strokeStyle = accentColor || 'red'; // Use the accent color, fallback to red if not found
-				this.ctx.lineWidth = 5; // Line thickness
-				this.ctx.lineJoin = 'round'; // Smooth corners
-				this.ctx.lineCap = 'round'; // Smooth line ends
+				this.ctx.strokeStyle = strokeColor;
+				this.ctx.lineWidth = this.settings.lineWidth;
+				this.ctx.lineJoin = 'round';
+				this.ctx.lineCap = 'round';
 			}
 		}
-
+	
 		// Begin path at the current mouse position
 		if (this.ctx) {
 			this.ctx.beginPath();
 			this.ctx.moveTo(evt.clientX, evt.clientY);
 		}
 	}
-
+	
 	// Draw the line to the current mouse position
 	private draw(x: number, y: number) {
+		if (!this.drawing || !this.settings.enableDrawing) {
+			return;
+		}
 		if (this.ctx) {
 			this.ctx.lineTo(x, y); // Draw line to this point
 			this.ctx.stroke(); // Actually render the line
 		}
 	}
-
+	
 	// Stop drawing and remove the canvas if necessary
 	private stopDrawing() {
+		if (!this.settings.enableDrawing) {
+			return; // Do nothing if drawing is disabled
+		}
+	
 		this.drawing = false;
 		if (this.canvas) {
 			document.body.removeChild(this.canvas);
@@ -242,7 +274,8 @@ export default class GestureNav extends Plugin {
 			this.ctx = null;
 		}
 	}
-
+	
+	// Execute gesture actions and show the overlay
 	private executeGestureAction(
 		gesture: 'left' | 'right' | 'up' | 'down',
 		action: () => void,
@@ -250,31 +283,16 @@ export default class GestureNav extends Plugin {
 		this.showGestureOverlay(gesture);
 		action();
 	}
+
+	
 	private showGestureOverlay(gesture: 'left' | 'right' | 'up' | 'down') {
 		if (this.overlay) {
-			this.overlay.remove(); 
+			this.overlay.remove();
 		}
-
+	
 		this.overlay = document.createElement('div');
-		this.overlay.style.position = 'fixed';
-		this.overlay.style.top = '50%';
-		this.overlay.style.left = '50%';
-		this.overlay.style.transform = 'translate(-50%, -50%)';
-		this.overlay.style.zIndex = '1001';
-		this.overlay.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
-		this.overlay.style.borderRadius = '50%'; 
-		this.overlay.style.width = '175px'; 
-		this.overlay.style.height = '175px';
-		this.overlay.style.display = 'flex';
-		this.overlay.style.flexDirection = 'column';
-		this.overlay.style.alignItems = 'center';
-		this.overlay.style.justifyContent = 'center';
-		this.overlay.style.padding = '20px';
-		this.overlay.style.color = 'white';
-		this.overlay.style.textAlign = 'center';
-		this.overlay.style.fontSize = '36px'; 
-
-		// Use Unicode arrows to represent the gesture
+		this.overlay.classList.add('gesture-overlay');
+	
 		let arrowSymbol = '';
 		let actionText = '';
 		if (gesture === 'right') {
@@ -291,23 +309,23 @@ export default class GestureNav extends Plugin {
 			actionText = 'Scroll to Bottom';
 		} else {
 			arrowSymbol = '✕'; // Cancel symbol
-			this.overlay.style.fontSize = '50px'; 
+			this.overlay.classList.add('gesture-overlay-cancel'); // Extra class for cancel symbol
 		}
-
+	
 		// Add the arrow symbol to the overlay
 		const arrow = document.createElement('div');
 		arrow.innerText = arrowSymbol;
 		this.overlay.appendChild(arrow);
-
+	
 		// Add text below the arrow based on gesture direction
 		const text = document.createElement('div');
 		text.innerText = actionText;
-		text.style.marginTop = '10px';
-		text.style.fontSize = '16px'; // Smaller font size for the text
+		text.classList.add('gesture-text');
 		this.overlay.appendChild(text);
-
+	
 		document.body.appendChild(this.overlay);
 	}
+	
 
 	public getCurrentViewOfType() {
 		// get the current active view
@@ -393,6 +411,74 @@ class GestureNavSettingTab extends PluginSettingTab {
 					.setValue(this.plugin.settings.trigerkey)
 					.onChange(async (value) => {
 						this.plugin.settings.trigerkey = value as TrigerKey;
+						await this.plugin.saveSettings();
+					}),
+			);
+
+		// Drawing toggle
+		new Setting(containerEl)
+			.setName('Enable Drawing')
+			.setDesc('Toggle to enable or disable gesture drawing on the screen')
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.enableDrawing)
+					.onChange(async (value) => {
+						this.plugin.settings.enableDrawing = value;
+						await this.plugin.saveSettings();
+					}),
+			);
+
+		// Stroke color settings
+		new Setting(containerEl)
+			.setName('Stroke Color')
+			.setDesc('Select the color for the gesture stroke')
+			.addDropdown((dropdown) => {
+				dropdown
+					.addOptions({
+						'accent': 'Accent Color',
+						'red': 'Red',
+						'orange': 'Orange',
+						'yellow': 'Yellow',
+						'green': 'Green',
+						'blue': 'Blue',
+						'purple': 'Purple',
+						'custom': 'Custom',
+					})
+					.setValue(this.plugin.settings.strokeColor || 'accent') // Default to accent
+					.onChange(async (value) => {
+						this.plugin.settings.strokeColor = value;
+						await this.plugin.saveSettings();
+
+						// Enable custom color input only if custom is selected
+						customColorSetting.setDisabled(value !== 'custom');
+					});
+			});
+
+		// Custom color input
+		const customColorSetting = new Setting(containerEl)
+			.setName('Custom Stroke Color')
+			.setDesc('Enter a custom color (hex or valid CSS color)')
+			.addText((text) =>
+				text
+					.setPlaceholder('#000000')
+					.setValue(this.plugin.settings.customStrokeColor || '')
+					.onChange(async (value) => {
+						this.plugin.settings.customStrokeColor = value;
+						await this.plugin.saveSettings();
+					}),
+			)
+			.setDisabled(this.plugin.settings.strokeColor !== 'custom'); // Disable unless custom is selected
+	
+		// Line width setting
+		new Setting(containerEl)
+			.setName('Line Width')
+			.setDesc('Set the thickness of the gesture stroke')
+			.addSlider((slider) =>
+				slider
+					.setLimits(1, 10, 1) // Set range between 1 and 10
+					.setValue(this.plugin.settings.lineWidth)
+					.onChange(async (value) => {
+						this.plugin.settings.lineWidth = value;
 						await this.plugin.saveSettings();
 					}),
 			);

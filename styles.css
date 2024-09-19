@@ -6,3 +6,39 @@ available in the app when your plugin is enabled.
 If your plugin does not need CSS, delete this file.
 
 */
+.gesture-canvas {
+	position: fixed;
+	top: 0;
+	left: 0;
+	z-index: 1000;
+	pointer-events: none; /* Ensure it doesn't block other events */
+}
+
+.gesture-overlay {
+	position: fixed;
+	top: 50%;
+	left: 50%;
+	transform: translate(-50%, -50%);
+	z-index: 1001;
+	background-color: rgba(0, 0, 0, 0.5);
+	border-radius: 50%;
+	width: 175px;
+	height: 175px;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	padding: 20px;
+	color: white;
+	text-align: center;
+	font-size: 36px;
+}
+
+.gesture-overlay-cancel {
+	font-size: 50px;
+}
+
+.gesture-text {
+	margin-top: 10px;
+	font-size: 16px;
+}
