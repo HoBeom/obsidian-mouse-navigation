@@ -5,7 +5,6 @@
 	"minAppVersion": "0.15.0",
 	"description": "Enables smooth navigation using mouse gestures for scrolling and switching pages.",
 	"author": "HoBeomJeon",
-	"repo": "hobeom/obsidian-mouse-navigation",
 	"authorUrl": "https://github.com/hobeom",
 	"isDesktopOnly": true
 }

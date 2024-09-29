@@ -3,13 +3,14 @@ import {
 	View,
 	MarkdownView,
 	// Notice,
+	Menu,
 	Plugin,
 	PluginSettingTab,
 	Setting,
+	Notice,
 } from 'obsidian';
 
 interface GestureNavSettings {
-	mySetting: string;
 	trigerkey: TrigerKey;
 	enableDrawing: boolean;
 	strokeColor: string; 
@@ -23,7 +24,6 @@ enum TrigerKey {
 }
 
 const DEFAULT_SETTINGS: GestureNavSettings = {
-	mySetting: 'default',
 	trigerkey: TrigerKey.RIGHT_CLICK,
 	enableDrawing: true, 
 	strokeColor: 'accent', 
@@ -31,14 +31,16 @@ const DEFAULT_SETTINGS: GestureNavSettings = {
 	lineWidth: 5,          
 };
 
-const isPreview = (markdownView: MarkdownView) => {
+const isPreviewMode = (markdownView: MarkdownView) => {
+	if (markdownView === null) return false;
 	const mode = markdownView.getMode();
-	return mode === 'preview';
+	return mode === 'preview' && markdownView.previewMode !== null;
 };
 
-const isSource = (markdownView: MarkdownView) => {
+const isEditMode = (markdownView: MarkdownView) => {
+	if (markdownView === null) return false;
 	const mode = markdownView.getMode();
-	return mode === 'source';
+	return mode === 'source' && markdownView.editor !== null;
 };
 
 let globalMarkdownView: MarkdownView | null = null;
@@ -118,7 +120,6 @@ export default class GestureNav extends Plugin {
 			if (evt.button === this.settings.trigerkey) {
 				this.startDrawing(evt);
 				globalMouseDown = true;
-				// new Notice('Right Mouse Key Down!! Position: ' + evt.clientX + ' ' + evt.clientY);
 				startClientX = evt.clientX;
 				startClientY = evt.clientY;
 				this.currentGesture = null; // Reset the gesture
@@ -186,19 +187,19 @@ export default class GestureNav extends Plugin {
 						this.scrollToTop.bind(this),
 					);
 				} else {
-					// If no gesture is detected, show the context menu
-					// new Notice('Show contextmenu');
-					doc.elementFromPoint(
-						evt.clientX,
-						evt.clientY,
-					).dispatchEvent(
-						new MouseEvent('contextmenu', {
-							bubbles: true,
-							cancelable: true,
-							clientX: evt.clientX,
-							clientY: evt.clientY,
-						}),
-					);
+					// this.selectTextUnderCursor(evt);
+					this.showContextMenu(evt);
+					// doc.elementFromPoint(
+					// 	evt.clientX,
+					// 	evt.clientY,
+					// ).dispatchEvent(
+					// 	new MouseEvent('contextmenu', {
+					// 		bubbles: true,
+					// 		cancelable: true,
+					// 		clientX: evt.clientX,
+					// 		clientY: evt.clientY,
+					// 	}),
+					// );
 				}
 				this.currentGesture = null; // Reset gesture on mouse up
 				if (this.overlay) {
@@ -284,7 +285,37 @@ export default class GestureNav extends Plugin {
 		action();
 	}
 
-	
+	private selectTextUnderCursor(evt: MouseEvent) {
+		// TODO: Implement text selection under cursor
+	}	
+
+
+	private showContextMenu(evt: MouseEvent) {
+		const markdownView = this.getCurrentViewOfType();
+		if (isEditMode(markdownView)) {
+			this.showEditModeContextMenu(evt);
+		} else if (isPreviewMode(markdownView)) {
+			this.showPreviewContextMenu(evt);
+		}
+	}
+
+	private showEditModeContextMenu(evt: MouseEvent) {
+		const doc = document;
+		doc.elementFromPoint(evt.clientX, evt.clientY).dispatchEvent(
+			new MouseEvent('contextmenu', {
+				bubbles: true,
+				cancelable: true,
+				clientX: evt.clientX,
+				clientY: evt.clientY,
+			}),
+		);
+	}
+
+	private showPreviewContextMenu(evt: MouseEvent) {
+		// TODO: Implement original context menu in preview mode
+
+	}
+
 	private showGestureOverlay(gesture: 'left' | 'right' | 'up' | 'down') {
 		if (this.overlay) {
 			this.overlay.remove();
@@ -297,16 +328,16 @@ export default class GestureNav extends Plugin {
 		let actionText = '';
 		if (gesture === 'right') {
 			arrowSymbol = '→'; // Right arrow
-			actionText = 'Next Page';
+			actionText = 'Next page';
 		} else if (gesture === 'left') {
 			arrowSymbol = '←'; // Left arrow
-			actionText = 'Previous Page';
+			actionText = 'Previous page';
 		} else if (gesture === 'up') {
 			arrowSymbol = '↑'; // Up arrow
-			actionText = 'Scroll to Top';
+			actionText = 'Scroll to top';
 		} else if (gesture === 'down') {
 			arrowSymbol = '↓'; // Down arrow
-			actionText = 'Scroll to Bottom';
+			actionText = 'Scroll to bottom';
 		} else {
 			arrowSymbol = '✕'; // Cancel symbol
 			this.overlay.classList.add('gesture-overlay-cancel'); // Extra class for cancel symbol
@@ -330,58 +361,32 @@ export default class GestureNav extends Plugin {
 	public getCurrentViewOfType() {
 		// get the current active view
 		let markdownView = this.app.workspace.getActiveViewOfType(MarkdownView);
-		// To distinguish whether the current view is hidden or not markdownView
-		const currentView = this.app.workspace.getActiveViewOfType(
-			View,
-		) as MarkdownView;
-		// solve the problem of closing always focus new tab setting
-		if (markdownView !== null) {
-			globalMarkdownView = markdownView;
-		} else {
-			// fix the plugin shutdown problem when the current view is not exist
-			if (currentView == null || currentView?.file?.extension == 'md') {
-				markdownView = globalMarkdownView;
-			}
-		}
+		// // To distinguish whether the current view is hidden or not markdownView
+		// const currentView = this.app.workspace.getActiveViewOfType(
+		// 	View,
+		// );
+		// // solve the problem of closing always focus new tab setting
+		// if (markdownView !== null) {
+		// 	globalMarkdownView = markdownView;
+		// } else {
+		// 	// fix the plugin shutdown problem when the current view is not exist
+		// 	if (currentView == null || !(currentView instanceof EditableFileView) && currentView?.file?.extension == 'md') {
+		// 		markdownView = globalMarkdownView;
+		// 	}
+		// }
 		return markdownView;
 	}
 
 	private scrollToTop() {
 		const markdownView = this.getCurrentViewOfType();
-		const preview = markdownView.previewMode;
-		if (isSource(markdownView)) {
-			const editor = markdownView.editor;
-			// cursor set to start
-			setTimeout(async () => {
-				editor.setCursor(0, 0);
-			}, 200);
-			// not limited to the start of the editor text as with editor.exec("goStart");
-			editor.scrollTo(0, 0);
-			this.app.workspace.setActiveLeaf(markdownView.leaf, {
-				focus: true,
-			});
-		} else {
-			isPreview(markdownView) && preview.applyScroll(0);
-		}
+		if (markdownView === null) return;
+		markdownView.currentMode.applyScroll(0);
 	}
 
 	private scrollToBottom = async () => {
 		const markdownView = this.getCurrentViewOfType();
-
-		const file = this.app.workspace.getActiveFile();
-		const content = await (this.app as unknown).vault.cachedRead(file);
-		const lines = content.split('\n');
-		let numberOfLines = lines.length;
-		//in preview mode don't count empty lines at the end
-		if (markdownView.getMode() === 'preview') {
-			while (
-				numberOfLines > 0 &&
-				lines[numberOfLines - 1].trim() === ''
-			) {
-				numberOfLines--;
-			}
-		}
-		markdownView.currentMode.applyScroll(numberOfLines - 1);
+		if (markdownView === null) return;
+		markdownView.currentMode.applyScroll(Number.MAX_SAFE_INTEGER);
 	};
 }
 
@@ -405,8 +410,8 @@ class GestureNavSettingTab extends PluginSettingTab {
 			.addDropdown((dropdown) =>
 				dropdown
 					.addOptions({
-						[TrigerKey.RIGHT_CLICK]: 'Right Click',
-						// [TrigerKey.WHEEL_CLICK]: 'Wheel Click',
+						[TrigerKey.RIGHT_CLICK]: 'Right click',
+						// [TrigerKey.WHEEL_CLICK]: 'Wheel click',
 					})
 					.setValue(this.plugin.settings.trigerkey)
 					.onChange(async (value) => {
@@ -417,7 +422,7 @@ class GestureNavSettingTab extends PluginSettingTab {
 
 		// Drawing toggle
 		new Setting(containerEl)
-			.setName('Enable Drawing')
+			.setName('Enable drawing')
 			.setDesc('Toggle to enable or disable gesture drawing on the screen')
 			.addToggle((toggle) =>
 				toggle
@@ -430,12 +435,12 @@ class GestureNavSettingTab extends PluginSettingTab {
 
 		// Stroke color settings
 		new Setting(containerEl)
-			.setName('Stroke Color')
+			.setName('Stroke color')
 			.setDesc('Select the color for the gesture stroke')
 			.addDropdown((dropdown) => {
 				dropdown
 					.addOptions({
-						'accent': 'Accent Color',
+						'accent': 'Accent color',
 						'red': 'Red',
 						'orange': 'Orange',
 						'yellow': 'Yellow',
@@ -456,7 +461,7 @@ class GestureNavSettingTab extends PluginSettingTab {
 
 		// Custom color input
 		const customColorSetting = new Setting(containerEl)
-			.setName('Custom Stroke Color')
+			.setName('Custom stroke color')
 			.setDesc('Enter a custom color (hex or valid CSS color)')
 			.addText((text) =>
 				text
@@ -471,7 +476,7 @@ class GestureNavSettingTab extends PluginSettingTab {
 	
 		// Line width setting
 		new Setting(containerEl)
-			.setName('Line Width')
+			.setName('Line width')
 			.setDesc('Set the thickness of the gesture stroke')
 			.addSlider((slider) =>
 				slider
