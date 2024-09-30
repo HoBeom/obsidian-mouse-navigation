@@ -109,7 +109,7 @@ export default class GestureNav extends Plugin {
 				event.stopPropagation();
 			}
 		}
-		doc.addEventListener('contextmenu', preventDefault, true);
+		// doc.addEventListener('contextmenu', preventDefault, true);
 
 		let startClientX = 0;
 		let startClientY = 0;
@@ -118,11 +118,16 @@ export default class GestureNav extends Plugin {
 		// Detect when the right mouse button is pressed
 		this.registerDomEvent(doc, 'mousedown', (evt: MouseEvent) => {
 			if (evt.button === this.settings.trigerkey) {
-				this.startDrawing(evt);
-				globalMouseDown = true;
-				startClientX = evt.clientX;
-				startClientY = evt.clientY;
-				this.currentGesture = null; // Reset the gesture
+				if (isEditMode(this.getCurrentViewOfType())) {
+					doc.addEventListener('contextmenu', preventDefault, true);
+					this.startDrawing(evt);
+					globalMouseDown = true;
+					startClientX = evt.clientX;
+					startClientY = evt.clientY;
+					this.currentGesture = null; // Reset the gesture
+				} else {
+					doc.removeEventListener('contextmenu', preventDefault, true);
+				}
 			}
 		});
 
