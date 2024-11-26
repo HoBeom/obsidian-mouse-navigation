@@ -104,6 +104,10 @@ export default class GestureNav extends Plugin {
 
 		// Prevent default right-click context menu
 		function preventDefault(event) {
+			const target = event.target as HTMLElement;
+			if (target.closest('.workspace-leaf')?.classList.contains('nav-folder')) {
+				return;
+			}		
 			if (event.isTrusted) {
 				event.preventDefault();
 				event.stopPropagation();
