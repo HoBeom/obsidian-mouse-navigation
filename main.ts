@@ -1,14 +1,33 @@
 import {
 	App,
-	View,
+	// View,
 	MarkdownView,
 	// Notice,
-	Menu,
+	// Menu,
 	Plugin,
 	PluginSettingTab,
 	Setting,
 	Notice,
 } from 'obsidian';
+import DollarRecognizer, { Point } from './dollar'
+import * as strokes from './strokes.js';
+
+// Code from https://github.com/dodrio/dollar1-unistroke-recognizer
+const pointMaker = ({ x, y }) => new Point(x, y)
+class GestureRecognizer {
+  constructor({ defaultStrokes = true } = {}) {
+    this.dollarRecognizer = new DollarRecognizer({ defaultStrokes })
+  }
+  recognize(points, useProtractor) {
+    return this.dollarRecognizer.Recognize(
+      points.map(pointMaker),
+      useProtractor
+    )
+  }
+  add(name, points) {
+    return this.dollarRecognizer.AddGesture(name, points.map(pointMaker))
+  }
+}
 
 interface GestureNavSettings {
 	trigerkey: TrigerKey;
@@ -43,8 +62,9 @@ const isEditMode = (markdownView: MarkdownView) => {
 	return mode === 'source' && markdownView.editor !== null;
 };
 
-let globalMarkdownView: MarkdownView | null = null;
+// const globalMarkdownView: MarkdownView | null = null;
 let globalMouseDown = false;
+
 
 export default class GestureNav extends Plugin {
 	settings: GestureNavSettings;
@@ -93,14 +113,45 @@ export default class GestureNav extends Plugin {
 	}
 
 	private overlay: HTMLElement | null = null; // Declare overlay at the class level
-	private currentGesture: 'left' | 'right' | 'up' | 'down' | null = null; // Declare currentGesture at the class level
-
+	// private currentGesture: 'left' | 'right' | 'up' | 'down' | null = null; // Declare currentGesture at the class level
+	private currentGesture: string | null = null; // Declare currentGesture at the class level
 	private canvas: HTMLCanvasElement | null = null;
 	private ctx: CanvasRenderingContext2D | null = null;
 	private drawing = false; // Keep track if we are currently drawing
+	private strokeData: Array<{ x: number; y: number }> = []; // To store stroke points
 
 	private registerEvents(currentWindow: Window) {
 		const doc: Document = currentWindow.document;
+
+		const gr = new GestureRecognizer({ defaultStrokes: false })
+		// gr.add('next-page', strokes.rightStroke)
+		// gr.add('pre-page', strokes.leftStroke)
+		// gr.add('scroll-top', strokes.upStroke)
+		// gr.add('scroll-bottom', strokes.downStroke)
+		// gr.add('close-tab', strokes.downRightStroke)
+		// gr.add('reopen-tab', strokes.downLeftStroke)
+		// gr.add('new-tab', strokes.upRightStroke)
+		// gr.add('new-file', strokes.upLeftStroke)
+		// gr.add('maximize', strokes.rightUpStroke)
+		// gr.add('minimize', strokes.rightDownStroke)
+		// gr.add('fullscreen', strokes.leftUpStroke)
+		// gr.add('search', strokes.leftDownStroke)
+		// gr.add('refresh', strokes.downUpStroke)
+		// gr.add('refresh2', strokes.upDownStroke)
+		// gr.add('undo', strokes.leftRightStroke)
+		// gr.add('undo2', strokes.rightLeftStroke)
+		gr.add('downRight', strokes.downRightStroke)
+		gr.add('downLeft', strokes.downLeftStroke)
+		gr.add('upRight', strokes.upRightStroke)
+		gr.add('upLeft', strokes.upLeftStroke)
+		gr.add('rightUp', strokes.rightUpStroke)
+		gr.add('rightDown', strokes.rightDownStroke)
+		gr.add('leftUp', strokes.leftUpStroke)
+		gr.add('leftDown', strokes.leftDownStroke)
+		gr.add('downUp', strokes.downUpStroke)
+		gr.add('upDown', strokes.upDownStroke)
+		gr.add('leftRight', strokes.leftRightStroke)
+		gr.add('rightLeft', strokes.rightLeftStroke)
 
 		// Prevent default right-click context menu
 		function preventDefault(event) {
@@ -143,8 +194,7 @@ export default class GestureNav extends Plugin {
 			if (globalMouseDown) {
 				const deltaX = evt.clientX - startClientX;
 				const deltaY = evt.clientY - startClientY;
-				let detectedGesture: 'left' | 'right' | 'up' | 'down' | null =
-					null;
+				let detectedGesture = null;
 
 				// Detect horizontal gestures (left/right)
 				if (
@@ -160,7 +210,15 @@ export default class GestureNav extends Plugin {
 				) {
 					detectedGesture = deltaY > 0 ? 'down' : 'up';
 				}
-
+				else if (
+					Math.abs(deltaY) > gesture_margin &&
+					Math.abs(deltaX) > gesture_margin
+				) {
+					const result = gr.recognize(this.strokeData, false)
+					if (result.Score > 0.8)
+						new Notice('Gesture: ' + result.Name + ' Score: ' + result.Score);
+						detectedGesture = result.Name
+				}
 				// If gesture has changed, update the overlay
 				if (detectedGesture !== this.currentGesture) {
 					this.currentGesture = detectedGesture;
@@ -224,7 +282,8 @@ export default class GestureNav extends Plugin {
 		}
 
 		this.drawing = true;
-	
+		this.strokeData = []; // Reset the stroke data
+
 		// Create a canvas if it doesn't exist
 		if (!this.canvas) {
 			this.canvas = document.createElement('canvas');
@@ -257,6 +316,7 @@ export default class GestureNav extends Plugin {
 		if (this.ctx) {
 			this.ctx.beginPath();
 			this.ctx.moveTo(evt.clientX, evt.clientY);
+			this.strokeData.push({ x: evt.clientX, y: evt.clientY });
 		}
 	}
 	
@@ -268,6 +328,17 @@ export default class GestureNav extends Plugin {
 		if (this.ctx) {
 			this.ctx.lineTo(x, y); // Draw line to this point
 			this.ctx.stroke(); // Actually render the line
+
+			// Sample the points for gesture recognition
+			// const lastPoint = this.strokeData[this.strokeData.length - 1];
+			// const distance =
+			// 	lastPoint &&
+			// 	Math.sqrt(Math.pow(x - lastPoint.x, 2) + Math.pow(y - lastPoint.y, 2));
+	
+			// if (!lastPoint || distance > 5) { // 5px minimum distance between points
+			// 	this.strokeData.push({ x, y });
+			// }
+			this.strokeData.push({ x, y });
 		}
 	}
 	
@@ -278,13 +349,41 @@ export default class GestureNav extends Plugin {
 		}
 	
 		this.drawing = false;
+
+		const strokeDataCopy = [...this.strokeData];
+		this.writeStrokeDataToMarkdown(strokeDataCopy);
+
+		this.strokeData = []; // Clear the stroke data
 		if (this.canvas) {
 			document.body.removeChild(this.canvas);
 			this.canvas = null;
 			this.ctx = null;
 		}
 	}
+
+	private async writeStrokeDataToMarkdown(strokeData: Array<{ x: number; y: number }>) {
+		const markdownView = this.getCurrentViewOfType();
+		if (!markdownView) {
+			new Notice('No active markdown view to write stroke data.');
+			return;
+		}
 	
+		const strokeDataJson = await new Promise<string>((resolve) => {
+			setTimeout(() => resolve(JSON.stringify(strokeData, null, 2)), 0);
+		});
+	
+		const editor = markdownView.editor;
+		if (editor) {
+			editor.replaceRange(
+				`\n\n\`\`\`json\n${strokeDataJson}\n\`\`\`\n`,
+				{ line: editor.lastLine() + 1, ch: 0 }
+			);
+			new Notice('Stroke data written to markdown document.');
+		} else {
+			new Notice('No editor found to write stroke data.');
+		}
+	}
+
 	// Execute gesture actions and show the overlay
 	private executeGestureAction(
 		gesture: 'left' | 'right' | 'up' | 'down',
@@ -325,7 +424,7 @@ export default class GestureNav extends Plugin {
 
 	}
 
-	private showGestureOverlay(gesture: 'left' | 'right' | 'up' | 'down') {
+	private showGestureOverlay(gesture: string) {
 		if (this.overlay) {
 			this.overlay.remove();
 		}
@@ -347,6 +446,42 @@ export default class GestureNav extends Plugin {
 		} else if (gesture === 'down') {
 			arrowSymbol = '↓'; // Down arrow
 			actionText = 'Scroll to bottom';
+		} else if (gesture === 'downRight') {
+			arrowSymbol = '↳'; // Down right arrow
+			actionText = 'Close tab';
+		} else if (gesture === 'downLeft') {
+			arrowSymbol = '↲'; // Down left arrow
+			actionText = 'Reopen tab';
+		} else if (gesture === 'upRight') {
+			arrowSymbol = '↱'; // Up right arrow
+			actionText = 'New tab';
+		} else if (gesture === 'upLeft') {
+			arrowSymbol = '↰'; // Up left arrow
+			actionText = 'New file';
+		} else if (gesture === 'rightUp') {
+			arrowSymbol = '⬏'; // Right up arrow
+			actionText = 'Maximize';
+		} else if (gesture === 'rightDown') {
+			arrowSymbol = '⬎'; // Right down arrow
+			actionText = 'Minimize';
+		} else if (gesture === 'leftUp') {
+			arrowSymbol = '⬑'; // Left up arrow
+			actionText = 'Fullscreen';
+		} else if (gesture === 'leftDown') {
+			arrowSymbol = '⬐'; // Left down arrow
+			actionText = 'Search';
+		} else if (gesture === 'downUp') {
+			arrowSymbol = '⇅'; // Down up arrow
+			actionText = 'Refresh';
+		} else if (gesture === 'upDown') {
+			arrowSymbol = '⇵'; // Up down arrow
+			actionText = 'Refresh';
+		} else if (gesture === 'leftRight') {
+			arrowSymbol = '⇄'; // Left right arrow
+			actionText = 'Undo';
+		} else if (gesture === 'rightLeft') {
+			arrowSymbol = '⇆'; // Right left arrow
+			actionText = 'Undo';
 		} else {
 			arrowSymbol = '✕'; // Cancel symbol
 			this.overlay.classList.add('gesture-overlay-cancel'); // Extra class for cancel symbol
@@ -369,7 +504,7 @@ export default class GestureNav extends Plugin {
 
 	public getCurrentViewOfType() {
 		// get the current active view
-		let markdownView = this.app.workspace.getActiveViewOfType(MarkdownView);
+		const markdownView = this.app.workspace.getActiveViewOfType(MarkdownView);
 		// // To distinguish whether the current view is hidden or not markdownView
 		// const currentView = this.app.workspace.getActiveViewOfType(
 		// 	View,
