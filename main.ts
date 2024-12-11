@@ -121,6 +121,9 @@ export default class GestureNav extends Plugin {
 
 		// Detect when the right mouse button is pressed
 		this.registerDomEvent(doc, 'mousedown', (evt: MouseEvent) => {
+			if (this.isSettingsVisible()) {
+				return;
+			}
 			if (evt.button === this.settings.trigerkey) {
 				if (isEditMode(this.getCurrentViewOfType())) {
 					doc.addEventListener('contextmenu', preventDefault, true);
@@ -294,10 +297,6 @@ export default class GestureNav extends Plugin {
 		action();
 	}
 
-	private selectTextUnderCursor(evt: MouseEvent) {
-		// TODO: Implement text selection under cursor
-	}	
-
 
 	private showContextMenu(evt: MouseEvent) {
 		const markdownView = this.getCurrentViewOfType();
@@ -320,9 +319,17 @@ export default class GestureNav extends Plugin {
 		);
 	}
 
+	private isSettingsVisible(): boolean {
+		const settingTabs = document.querySelector('.modal-container');
+		return settingTabs !== null && settingTabs.style.display !== 'none';
+	}
+
+	private selectTextUnderCursor(evt: MouseEvent) {
+		// TODO: Implement text selection under cursor
+	}	
+
 	private showPreviewContextMenu(evt: MouseEvent) {
 		// TODO: Implement original context menu in preview mode
-
 	}
 
 	private showGestureOverlay(gesture: 'left' | 'right' | 'up' | 'down') {
