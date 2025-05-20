@@ -8,10 +8,11 @@
 		"allowJs": true,
 		"noImplicitAny": true,
 		"moduleResolution": "node",
-		"importHelpers": true,
-		"isolatedModules": true,
-		"strictNullChecks": true,
-		"lib": ["DOM", "ES5", "ES6", "ES7"]
+        "importHelpers": false,
+        "isolatedModules": true,
+        "strictNullChecks": true,
+        "lib": ["DOM", "ES5", "ES6", "ES7"],
+        "typeRoots": ["./typings", "./node_modules/@types"]
 	},
 	"include": ["**/*.ts"]
 }

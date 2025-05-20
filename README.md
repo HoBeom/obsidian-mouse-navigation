@@ -6,7 +6,7 @@
 
 ## Features
 
-- **Customizable Mouse Gestures**: Currently, navigation is performed using right-click mouse gestures to move forward, backward, or scroll up/down. 
+- **Customizable Mouse Gestures**: Navigate with right-click gestures. Two-step gestures like `down+left` or `up+right` are supported by default.
 - **Visual Feedback**: Gesture actions are visually represented on the screen with smooth animations.
 - **Draw-on-Screen**: As you perform gestures, see your mouse movements tracked like a pencil on the screen, providing clear visual feedback.
 - **Flexible Gesture Settings**: Currently, gestures are fixed, but plans are in place for customizable gestures in future updates, allowing users to personalize their experience.
@@ -32,4 +32,4 @@ Once installed, simply hold the **right mouse button** and move your mouse in th
 
 ### Development Plans
 
-We are working on introducing support for more diverse mouse gestures and allowing users to fully customize which actions are triggered by specific gestures. Stay tuned for updates that will make navigation even more flexible and powerful!
+Two-step gesture support is now included. Future updates will focus on allowing users to fully customize which actions are triggered by each gesture.
