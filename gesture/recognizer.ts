@@ -2,11 +2,11 @@
 import { Direction, GesturePattern } from '../types/gesture';
 
 export interface RecognizerOptions {
-  thresholdPx?: number;   // 한 세그먼트 최소 길이
-  maxSegments?: number;   // 허용할 최대 방향 개수
+  thresholdPx?: number;   // Minimum segment length in pixels
+  maxSegments?: number;   // Maximum number of direction segments
 }
 
-/** 마우스 궤적으로부터 제스처 패턴을 산출하는 클래스 */
+/** Computes gesture patterns from mouse trajectories */
 export class GestureRecognizer {
   private segments: Direction[] = [];
   private lastPoint = { x: 0, y: 0 };
@@ -18,13 +18,13 @@ export class GestureRecognizer {
     this.MAX_SEG  = opts.maxSegments ?? 4;
   }
 
-  /** mousedown 시 호출 */
+  /** Called on mousedown */
   start(x: number, y: number) {
     this.segments = [];
     this.lastPoint = { x, y };
   }
 
-  /** mousemove 시 호출 */
+  /** Called on mousemove */
   track(x: number, y: number, onChange?: (segments: Direction[]) => void) {
     const dx = x - this.lastPoint.x;
     const dy = y - this.lastPoint.y;
@@ -36,11 +36,11 @@ export class GestureRecognizer {
     ) {
       this.segments.push(dir);
       this.lastPoint = { x, y };
-      onChange?.([...this.segments]); // 실시간 피드백
+      onChange?.([...this.segments]); // Real-time feedback
     }
   }
 
-  /** mouseup 시 호출 → 최종 패턴 반환 */
+  /** Called on mouseup → returns final pattern */
   finish(): GesturePattern {
     return this.normalize(this.segments);
   }
@@ -60,18 +60,18 @@ export class GestureRecognizer {
     return null;
   }
 
-  /** 연속 중복 제거, 왕복 패턴 정규화 */
+  /** Deduplicate consecutive directions, normalize alternating patterns */
   private normalize(seg: Direction[]): GesturePattern {
     const condensed = seg.filter((d, i, a) => i === 0 || d !== a[i - 1]);
 
-    // 좌우·상하 1회 왕복 (2-step) ⇢ 특수 토큰
+    // Single horizontal/vertical alternation (2-step) → special token
     if (condensed.length === 2 && condensed[0] !== condensed[1]) {
       const pair = new Set([condensed[0], condensed[1]]);
       if (pair.has('left') && pair.has('right')) return ['LR-LR'];
       if (pair.has('up') && pair.has('down')) return ['UD-UD'];
     }
 
-    // 4-step 왕복 패턴은 더 이상 사용하지 않음
-    return condensed.slice(0, 2); // 최대 2-step
+    // 4-step alternating patterns are no longer used
+    return condensed.slice(0, 2); // Max 2-step
   }
 }

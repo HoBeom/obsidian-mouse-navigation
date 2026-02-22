@@ -449,7 +449,7 @@ export default class GestureNav extends Plugin {
 			return;
 		}
 		if (segments.length > 2) {
-			// 반복 제스처는 mouseup 시점에만 표시
+			// Repeat gestures are only shown on mouseup
 			return;
 		}
 		const key = segments.join(',');

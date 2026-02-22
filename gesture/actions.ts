@@ -166,13 +166,13 @@ export function executeGesture(
   const key = pattern.join(',');
   const action = ACTION_TABLE[actionId];
   if (!action) {
-    new Notice(`제스처 미지정: ${key}`);
+    new Notice(`Unassigned gesture: ${key}`);
     return false;
   }
 
   const ok = action(ctx);
   if (!ok) {
-    new Notice(`제스처 실행 실패: ${key}`);
+    new Notice(`Gesture failed: ${key}`);
   }
   return ok;
 }
