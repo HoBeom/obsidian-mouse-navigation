@@ -66,6 +66,10 @@ export const ACTION_IDS: ActionId[] = [
 
 type Action = (ctx: GestureActionContext) => boolean;
 
+interface CommandApi {
+  executeCommandById: (id: string) => unknown;
+}
+
 const tryWithNotice = (label: string, fn: () => void) => {
   try {
     fn();
@@ -88,6 +92,19 @@ const getCurrentWindow = () => {
   }
 };
 
+const getCommands = (app: App): CommandApi | null => {
+  const commands = (app as App & { commands?: CommandApi }).commands;
+  return commands ?? null;
+};
+
+const runCommand = (app: App, id: string) => {
+  const commands = getCommands(app);
+  if (!commands) {
+    throw new Error(`command API unavailable: ${id}`);
+  }
+  commands.executeCommandById(id);
+};
+
 export const ACTION_TABLE: Record<ActionId, Action> = {
   none: () => true,
   'custom-command': () => true,
@@ -99,31 +116,31 @@ export const ACTION_TABLE: Record<ActionId, Action> = {
     tryWithNotice('scroll bottom', () => ctx.scrollToBottom()),
   'split-horizontal': (ctx) =>
     tryWithNotice('split horizontal', () =>
-      ctx.app.commands.executeCommandById('workspace:split-horizontal'),
+      runCommand(ctx.app, 'workspace:split-horizontal'),
     ),
   'split-vertical': (ctx) =>
     tryWithNotice('split vertical', () =>
-      ctx.app.commands.executeCommandById('workspace:split-vertical'),
+      runCommand(ctx.app, 'workspace:split-vertical'),
     ),
   'copy-full-path': (ctx) =>
     tryWithNotice('copy full path', () =>
-      ctx.app.commands.executeCommandById('workspace:copy-full-path'),
+      runCommand(ctx.app, 'workspace:copy-full-path'),
     ),
   'copy-obsidian-url': (ctx) =>
     tryWithNotice('copy obsidian url', () =>
-      ctx.app.commands.executeCommandById('workspace:copy-url'),
+      runCommand(ctx.app, 'workspace:copy-url'),
     ),
   'export-pdf': (ctx) =>
     tryWithNotice('export pdf', () =>
-      ctx.app.commands.executeCommandById('workspace:export-pdf'),
+      runCommand(ctx.app, 'workspace:export-pdf'),
     ),
   'open-in-new-window': (ctx) =>
     tryWithNotice('open in new window', () =>
-      ctx.app.commands.executeCommandById('workspace:open-in-new-window'),
+      runCommand(ctx.app, 'workspace:open-in-new-window'),
     ),
   'move-to-new-window': (ctx) =>
     tryWithNotice('move to new window', () =>
-      ctx.app.commands.executeCommandById('workspace:move-to-new-window'),
+      runCommand(ctx.app, 'workspace:move-to-new-window'),
     ),
   'cycle-tab-left': (ctx) => tryWithNotice('tab left', () => ctx.cycleTab(-1)),
   'cycle-tab-right': (ctx) => tryWithNotice('tab right', () => ctx.cycleTab(1)),
@@ -131,7 +148,7 @@ export const ACTION_TABLE: Record<ActionId, Action> = {
     tryWithNotice('close tab', () => ctx.app.workspace.activeLeaf?.detach()),
   'reopen-closed-tab': (ctx) =>
     tryWithNotice('reopen closed tab', () =>
-      ctx.app.commands.executeCommandById('workspace:undo-close-pane'),
+      runCommand(ctx.app, 'workspace:undo-close-pane'),
     ),
   'new-tab': (ctx) =>
     tryWithNotice('new tab', () => ctx.openNewTab()),
@@ -150,11 +167,11 @@ export const ACTION_TABLE: Record<ActionId, Action> = {
   'prev-file': (ctx) => tryWithNotice('prev file', () => ctx.navigateSibling(-1)),
   'refresh-app': (ctx) =>
     tryWithNotice('refresh app', () =>
-      ctx.app.commands.executeCommandById('app:reload'),
+      runCommand(ctx.app, 'app:reload'),
     ),
   undo: (ctx) =>
     tryWithNotice('undo', () =>
-      ctx.app.commands.executeCommandById('editor:undo'),
+      runCommand(ctx.app, 'editor:undo'),
     ),
 };
 

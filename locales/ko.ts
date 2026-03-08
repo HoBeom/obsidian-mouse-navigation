@@ -34,6 +34,14 @@ export const ko = {
 			name: '선 두께',
 			desc: '제스처 라인의 두께를 설정합니다',
 		},
+		gestureEngine: {
+			name: '제스처 엔진',
+			desc: '신규 제스처(v2) 또는 레거시 동작(v1)을 선택합니다',
+			options: {
+				modern: '신규 (v2)',
+				legacy: '레거시 (v1)',
+			},
+		},
 		newTabBehavior: {
 			name: '새 탭 열기 동작',
 			desc: '"새 탭 열기"가 실행될 때 동작을 선택합니다',

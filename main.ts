@@ -22,6 +22,7 @@ interface GestureNavSettings {
 	customStrokeColor: string; 
 	lineWidth: number;   
 	gestureBindings: Record<string, ActionId>;
+	gestureEngine: GestureEngine;
 	language: Locale;
 	showContextMenuOnCancel: boolean;
 	newTabBehavior: NewTabBehavior;
@@ -35,6 +36,7 @@ enum TrigerKey {
 }
 
 type NewTabBehavior = 'empty' | 'current' | 'new-note';
+type GestureEngine = 'legacy-v1' | 'modern-v2';
 
 const DEFAULT_SETTINGS: GestureNavSettings = {
 	trigerkey: TrigerKey.RIGHT_CLICK,
@@ -43,6 +45,7 @@ const DEFAULT_SETTINGS: GestureNavSettings = {
 	customStrokeColor: '', 
 	lineWidth: 5,          
 	gestureBindings: {},
+	gestureEngine: 'modern-v2',
 	language: 'en',
 	showContextMenuOnCancel: false,
 	newTabBehavior: 'empty',
@@ -84,13 +87,13 @@ const GESTURE_META: { key: string; icon: string }[] = [
 	{ key: 'LR-LR', icon: '⇄' },
 ];
 
-const isPreviewMode = (markdownView: MarkdownView) => {
+const isPreviewMode = (markdownView: MarkdownView | null) => {
 	if (markdownView === null) return false;
 	const mode = markdownView.getMode();
 	return mode === 'preview' && markdownView.previewMode !== null;
 };
 
-const isEditMode = (markdownView: MarkdownView) => {
+const isEditMode = (markdownView: MarkdownView | null) => {
 	if (markdownView === null) return false;
 	const mode = markdownView.getMode();
 	return mode === 'source' && markdownView.editor !== null;
@@ -112,6 +115,8 @@ export default class GestureNav extends Plugin {
 	private contextMenuBlocker: ((event: MouseEvent) => void) | null = null;
 	private recognizedGesture = false;
 	private gestureStarted = false;
+	private legacyCurrentGesture: 'left' | 'right' | 'up' | 'down' | null = null;
+	private legacyStartPoint: { x: number; y: number } | null = null;
 	private registeredDocs = new Set<Document>();
 
 	async onload() {
@@ -146,11 +151,17 @@ export default class GestureNav extends Plugin {
 	}
 
 	async loadSettings() {
-		this.settings = Object.assign(
-			{},
-			DEFAULT_SETTINGS,
-			await this.loadData(),
-		);
+		const rawData = (await this.loadData()) as
+			| (Partial<GestureNavSettings> & { openNewTabCreatesNote?: boolean })
+			| null;
+		const hasExistingData =
+			rawData !== null && Object.keys(rawData).length > 0;
+		const gestureEngine: GestureEngine =
+			rawData?.gestureEngine ??
+			(hasExistingData ? 'legacy-v1' : DEFAULT_SETTINGS.gestureEngine);
+		this.settings = Object.assign({}, DEFAULT_SETTINGS, rawData, {
+			gestureEngine,
+		});
 
 		this.settings.gestureBindings = {
 			...DEFAULT_GESTURE_BINDINGS,
@@ -161,9 +172,8 @@ export default class GestureNav extends Plugin {
 		};
 
 		// migrate legacy settings
-		const legacy = (await this.loadData()) as any;
-		if (legacy && typeof legacy.openNewTabCreatesNote === 'boolean') {
-			this.settings.newTabBehavior = legacy.openNewTabCreatesNote
+		if (rawData && typeof rawData.openNewTabCreatesNote === 'boolean') {
+			this.settings.newTabBehavior = rawData.openNewTabCreatesNote
 				? 'new-note'
 				: 'current';
 		}
@@ -171,6 +181,33 @@ export default class GestureNav extends Plugin {
 
 	async saveSettings() {
 		await this.saveData(this.settings);
+	}
+
+	private isModernEngine() {
+		return this.settings.gestureEngine === 'modern-v2';
+	}
+
+	private getCommands() {
+		const appWithCommands = this.app as App & {
+			commands?: { executeCommandById: (id: string) => unknown };
+		};
+		return appWithCommands.commands ?? null;
+	}
+
+	private runCommand(id: string) {
+		this.getCommands()?.executeCommandById(id);
+	}
+
+	private executeActionForPattern(pattern: GesturePattern) {
+		const actionId = this.getActionForPattern(pattern);
+		if (actionId === 'custom-command') {
+			const customId = this.getCustomCommandId(pattern.join(','));
+			if (customId) {
+				this.runCommand(customId);
+			}
+			return;
+		}
+		executeGesture(pattern, actionId, this.getGestureActionContext());
 	}
 
 	private overlay: HTMLElement | null = null; // gesture overlay
@@ -183,7 +220,7 @@ export default class GestureNav extends Plugin {
 		const doc: Document = currentWindow.document;
 		this.registeredDocs.add(doc);
 
-		this.contextMenuBlocker = (event: MouseEvent) => {
+		const contextMenuBlocker = (event: MouseEvent) => {
 			const target = event.target as HTMLElement;
 			if (
 				target.closest('.workspace-leaf')?.classList.contains('nav-folder')
@@ -195,6 +232,7 @@ export default class GestureNav extends Plugin {
 				event.stopPropagation();
 			}
 		};
+		this.contextMenuBlocker = contextMenuBlocker;
 
 		// Detect when the right mouse button is pressed
 		this.registerDomEvent(doc, 'mousedown', (evt: MouseEvent) => {
@@ -205,20 +243,28 @@ export default class GestureNav extends Plugin {
 				if (isEditMode(this.getCurrentViewOfType())) {
 					doc.addEventListener(
 						'contextmenu',
-						this.contextMenuBlocker,
+						contextMenuBlocker,
 						true,
 					);
 					this.startDrawing(evt);
 					globalMouseDown = true;
-					this.gestureCanceled = false;
-					this.completedGestureType = null;
-					this.completedPoint = null;
-					this.recognizedGesture = false;
-					this.gestureStarted = false;
-					this.recognizer.start(evt.clientX, evt.clientY);
+					if (this.isModernEngine()) {
+						this.gestureCanceled = false;
+						this.completedGestureType = null;
+						this.completedPoint = null;
+						this.recognizedGesture = false;
+						this.gestureStarted = false;
+						this.recognizer.start(evt.clientX, evt.clientY);
+					} else {
+						this.legacyStartPoint = {
+							x: evt.clientX,
+							y: evt.clientY,
+						};
+						this.legacyCurrentGesture = null;
+					}
 				}
 				else {
-					doc.removeEventListener('contextmenu', this.contextMenuBlocker, true);
+					doc.removeEventListener('contextmenu', contextMenuBlocker, true);
 				}
 			}
 		});
@@ -229,6 +275,35 @@ export default class GestureNav extends Plugin {
 				this.draw(evt.clientX, evt.clientY);
 			}
 			if (globalMouseDown) {
+				if (!this.isModernEngine()) {
+					if (!this.legacyStartPoint) return;
+					const gestureMargin = 75;
+					const deltaX = evt.clientX - this.legacyStartPoint.x;
+					const deltaY = evt.clientY - this.legacyStartPoint.y;
+					let detectedGesture: 'left' | 'right' | 'up' | 'down' | null =
+						null;
+					if (
+						Math.abs(deltaX) > gestureMargin &&
+						Math.abs(deltaY) < gestureMargin
+					) {
+						detectedGesture = deltaX > 0 ? 'right' : 'left';
+					} else if (
+						Math.abs(deltaY) > gestureMargin &&
+						Math.abs(deltaX) < gestureMargin
+					) {
+						detectedGesture = deltaY > 0 ? 'down' : 'up';
+					}
+					if (detectedGesture !== this.legacyCurrentGesture) {
+						this.legacyCurrentGesture = detectedGesture;
+						if (detectedGesture) {
+							this.showGestureOverlayByPattern([detectedGesture]);
+						} else {
+							this.hideGestureOverlay();
+						}
+					}
+					return;
+				}
+
 				if (this.gestureCanceled) {
 					this.showGestureOverlay('✕', this.getStrings().common.cancel);
 					return;
@@ -270,6 +345,19 @@ export default class GestureNav extends Plugin {
 			this.stopDrawing();
 			if (evt.button === this.settings.trigerkey) {
 				globalMouseDown = false;
+				if (!this.isModernEngine()) {
+					if (this.legacyCurrentGesture) {
+						this.showGestureOverlayByPattern([this.legacyCurrentGesture]);
+						this.executeActionForPattern([this.legacyCurrentGesture]);
+					} else {
+						this.showContextMenu(evt);
+					}
+					this.hideGestureOverlay();
+					this.legacyCurrentGesture = null;
+					this.legacyStartPoint = null;
+					return;
+				}
+
 				const pattern = this.recognizer.finish();
 				const allowContextMenu =
 					(this.gestureCanceled &&
@@ -295,15 +383,7 @@ export default class GestureNav extends Plugin {
 
 				if (pattern.length !== 0) {
 					this.showGestureOverlayByPattern(pattern);
-					const actionId = this.getActionForPattern(pattern);
-					if (actionId === 'custom-command') {
-						const customId = this.getCustomCommandId(pattern.join(','));
-						if (customId) {
-							this.app.commands.executeCommandById(customId);
-						}
-					} else {
-						executeGesture(pattern, actionId, this.getGestureActionContext());
-					}
+					this.executeActionForPattern(pattern);
 				}
 
 				this.hideGestureOverlay();
@@ -391,7 +471,9 @@ export default class GestureNav extends Plugin {
 
 	private showEditModeContextMenu(evt: MouseEvent) {
 		const doc = document;
-		doc.elementFromPoint(evt.clientX, evt.clientY).dispatchEvent(
+		const target = doc.elementFromPoint(evt.clientX, evt.clientY);
+		if (!target) return;
+		target.dispatchEvent(
 			new MouseEvent('contextmenu', {
 				bubbles: true,
 				cancelable: true,
@@ -402,7 +484,9 @@ export default class GestureNav extends Plugin {
 	}
 
 	private isSettingsVisible(): boolean {
-		const settingTabs = document.querySelector('.modal-container');
+		const settingTabs = document.querySelector(
+			'.modal-container',
+		) as HTMLElement | null;
 		return settingTabs !== null && settingTabs.style.display !== 'none';
 	}
 
@@ -496,13 +580,14 @@ export default class GestureNav extends Plugin {
 		return strings.actionLabels[actionId] ?? strings.actionLabels.none;
 	}
 
-	private getCustomCommandId(key: string) {
+	public getCustomCommandId(key: string) {
 		return this.settings.customCommandIds[key] ?? '';
 	}
 
 	public getGestureLabel(key: string) {
 		const strings = this.getStrings();
-		return strings.gestureLabels[key] ?? key;
+		const labels = strings.gestureLabels as Record<string, string>;
+		return labels[key] ?? key;
 	}
 
 	private getStrings() {
@@ -589,7 +674,9 @@ export default class GestureNav extends Plugin {
 		}
 
 		// fallback: same view type
-		const viewType = activeLeaf.getViewType();
+			const viewType = (
+				activeLeaf as unknown as { getViewType: () => string }
+			).getViewType();
 		const leaves = this.app.workspace.getLeavesOfType(viewType);
 		const activeIndex = leaves.findIndex((leaf) => leaf === activeLeaf);
 		if (activeIndex === -1 || leaves.length < 2) return;
@@ -721,9 +808,9 @@ class GestureNavSettingTab extends PluginSettingTab {
 						// [TrigerKey.WHEEL_CLICK]:
 						// 	strings.settings.triggerKey.options.wheelClick,
 					})
-					.setValue(this.plugin.settings.trigerkey)
+					.setValue(String(this.plugin.settings.trigerkey))
 					.onChange(async (value) => {
-						this.plugin.settings.trigerkey = value as TrigerKey;
+						this.plugin.settings.trigerkey = Number(value) as TrigerKey;
 						await this.plugin.saveSettings();
 					}),
 			);
@@ -855,6 +942,22 @@ class GestureNavSettingTab extends PluginSettingTab {
 
 		containerEl.createEl('h3', { text: strings.sections.actions });
 		new Setting(containerEl)
+			.setName(strings.settings.gestureEngine.name)
+			.setDesc(strings.settings.gestureEngine.desc)
+			.addDropdown((dropdown) =>
+				dropdown
+					.addOptions({
+						'modern-v2': strings.settings.gestureEngine.options.modern,
+						'legacy-v1': strings.settings.gestureEngine.options.legacy,
+					})
+					.setValue(this.plugin.settings.gestureEngine)
+					.onChange(async (value) => {
+						this.plugin.settings.gestureEngine = value as GestureEngine;
+						await this.plugin.saveSettings();
+					}),
+			);
+
+		new Setting(containerEl)
 			.setName(strings.settings.newTabBehavior.name)
 			.setDesc(strings.settings.newTabBehavior.desc)
 			.addDropdown((dropdown) =>
@@ -913,9 +1016,11 @@ class GestureNavSettingTab extends PluginSettingTab {
 			const renderResults = (query: string) => {
 				resultsContainer.empty();
 				const q = query.trim().toLowerCase();
-				const commands = this.app.commands
-					.listCommands()
-					.filter((cmd) => {
+				const commandsApi = (this.app as App & {
+					commands?: { listCommands: () => Array<{ id: string; name: string }> };
+				}).commands;
+				const commands = (commandsApi?.listCommands() ?? [])
+					.filter((cmd: { id: string; name: string }) => {
 						if (!q) return true;
 						return (
 							cmd.name.toLowerCase().includes(q) ||

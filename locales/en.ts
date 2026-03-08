@@ -34,6 +34,14 @@ export const en = {
 			name: 'Line width',
 			desc: 'Set the thickness of the gesture stroke',
 		},
+		gestureEngine: {
+			name: 'Gesture engine',
+			desc: 'Choose modern gestures or keep legacy behavior',
+			options: {
+				modern: 'Modern (v2)',
+				legacy: 'Legacy (v1)',
+			},
+		},
 		newTabBehavior: {
 			name: 'New tab behavior',
 			desc: 'Choose what happens when "New tab" is triggered',
