@@ -1,14 +1,19 @@
 import {
 	App,
-	View,
 	MarkdownView,
-	// Notice,
-	Menu,
 	Plugin,
 	PluginSettingTab,
 	Setting,
-	Notice,
+	WorkspaceWindow,
 } from 'obsidian';
+import { GestureRecognizer } from './gesture/recognizer';
+import {
+	ActionId,
+	ACTION_IDS,
+	executeGesture,
+} from './gesture/actions';
+import { GesturePattern } from './types/gesture';
+import { getStrings, Locale } from './locales';
 
 interface GestureNavSettings {
 	trigerkey: TrigerKey;
@@ -16,6 +21,13 @@ interface GestureNavSettings {
 	strokeColor: string; 
 	customStrokeColor: string; 
 	lineWidth: number;   
+	gestureBindings: Record<string, ActionId>;
+	gestureEngine: GestureEngine;
+	language: Locale;
+	showContextMenuOnCancel: boolean;
+	newTabBehavior: NewTabBehavior;
+	debugMode: boolean;
+	customCommandIds: Record<string, string>;
 }
 
 enum TrigerKey {
@@ -23,21 +35,65 @@ enum TrigerKey {
 	WHEEL_CLICK = 1,
 }
 
+type NewTabBehavior = 'empty' | 'current' | 'new-note';
+type GestureEngine = 'legacy-v1' | 'modern-v2';
+
 const DEFAULT_SETTINGS: GestureNavSettings = {
 	trigerkey: TrigerKey.RIGHT_CLICK,
 	enableDrawing: true, 
 	strokeColor: 'accent', 
 	customStrokeColor: '', 
 	lineWidth: 5,          
+	gestureBindings: {},
+	gestureEngine: 'modern-v2',
+	language: 'en',
+	showContextMenuOnCancel: false,
+	newTabBehavior: 'empty',
+	debugMode: false,
+	customCommandIds: {},
 };
 
-const isPreviewMode = (markdownView: MarkdownView) => {
+const DEFAULT_GESTURE_BINDINGS: Record<string, ActionId> = {
+	left: 'navigate-back',
+	right: 'navigate-forward',
+	up: 'scroll-top',
+	down: 'scroll-bottom',
+	'down,left': 'cycle-tab-left',
+	'down,right': 'cycle-tab-right',
+	'up,left': 'close-tab',
+	'up,right': 'new-tab',
+	'right,down': 'copy-obsidian-url',
+	'right,up': 'maximize-window',
+	'left,down': 'next-file',
+	'left,up': 'prev-file',
+	'UD-UD': 'split-vertical',
+	'LR-LR': 'split-horizontal',
+};
+
+const GESTURE_META: { key: string; icon: string }[] = [
+	{ key: 'left', icon: '←' },
+	{ key: 'right', icon: '→' },
+	{ key: 'up', icon: '↑' },
+	{ key: 'down', icon: '↓' },
+	{ key: 'down,left', icon: '↵' },
+	{ key: 'down,right', icon: '↳' },
+	{ key: 'up,left', icon: '↰' },
+	{ key: 'up,right', icon: '↱' },
+	{ key: 'right,down', icon: '⬎' },
+	{ key: 'right,up', icon: '⬏' },
+	{ key: 'left,down', icon: '⬐' },
+	{ key: 'left,up', icon: '⬑' },
+	{ key: 'UD-UD', icon: '⇅' },
+	{ key: 'LR-LR', icon: '⇄' },
+];
+
+const isPreviewMode = (markdownView: MarkdownView | null) => {
 	if (markdownView === null) return false;
 	const mode = markdownView.getMode();
 	return mode === 'preview' && markdownView.previewMode !== null;
 };
 
-const isEditMode = (markdownView: MarkdownView) => {
+const isEditMode = (markdownView: MarkdownView | null) => {
 	if (markdownView === null) return false;
 	const mode = markdownView.getMode();
 	return mode === 'source' && markdownView.editor !== null;
@@ -48,6 +104,20 @@ let globalMouseDown = false;
 
 export default class GestureNav extends Plugin {
 	settings: GestureNavSettings;
+	private recognizer = new GestureRecognizer({
+		thresholdPx: 60,
+		maxSegments: 4,
+	});
+	private gestureCanceled = false;
+	private completedGestureType: 'two' | null = null;
+	private completedPoint: { x: number; y: number } | null = null;
+	// repeatCandidate removed; 2-step repeat handled in recognizer
+	private contextMenuBlocker: ((event: MouseEvent) => void) | null = null;
+	private recognizedGesture = false;
+	private gestureStarted = false;
+	private legacyCurrentGesture: 'left' | 'right' | 'up' | 'down' | null = null;
+	private legacyStartPoint: { x: number; y: number } | null = null;
+	private registeredDocs = new Set<Document>();
 
 	async onload() {
 		await this.loadSettings();
@@ -81,19 +151,66 @@ export default class GestureNav extends Plugin {
 	}
 
 	async loadSettings() {
-		this.settings = Object.assign(
-			{},
-			DEFAULT_SETTINGS,
-			await this.loadData(),
-		);
+		const rawData = (await this.loadData()) as
+			| (Partial<GestureNavSettings> & { openNewTabCreatesNote?: boolean })
+			| null;
+		const hasExistingData =
+			rawData !== null && Object.keys(rawData).length > 0;
+		const gestureEngine: GestureEngine =
+			rawData?.gestureEngine ??
+			(hasExistingData ? 'legacy-v1' : DEFAULT_SETTINGS.gestureEngine);
+		this.settings = Object.assign({}, DEFAULT_SETTINGS, rawData, {
+			gestureEngine,
+		});
+
+		this.settings.gestureBindings = {
+			...DEFAULT_GESTURE_BINDINGS,
+			...(this.settings.gestureBindings ?? {}),
+		};
+		this.settings.customCommandIds = {
+			...(this.settings.customCommandIds ?? {}),
+		};
+
+		// migrate legacy settings
+		if (rawData && typeof rawData.openNewTabCreatesNote === 'boolean') {
+			this.settings.newTabBehavior = rawData.openNewTabCreatesNote
+				? 'new-note'
+				: 'current';
+		}
 	}
 
 	async saveSettings() {
 		await this.saveData(this.settings);
 	}
 
-	private overlay: HTMLElement | null = null; // Declare overlay at the class level
-	private currentGesture: 'left' | 'right' | 'up' | 'down' | null = null; // Declare currentGesture at the class level
+	private isModernEngine() {
+		return this.settings.gestureEngine === 'modern-v2';
+	}
+
+	private getCommands() {
+		const appWithCommands = this.app as App & {
+			commands?: { executeCommandById: (id: string) => unknown };
+		};
+		return appWithCommands.commands ?? null;
+	}
+
+	private runCommand(id: string) {
+		this.getCommands()?.executeCommandById(id);
+	}
+
+	private executeActionForPattern(pattern: GesturePattern) {
+		const actionId = this.getActionForPattern(pattern);
+		if (actionId === 'custom-command') {
+			const customId = this.getCustomCommandId(pattern.join(','));
+			if (customId) {
+				this.runCommand(customId);
+			}
+			return;
+		}
+		executeGesture(pattern, actionId, this.getGestureActionContext());
+	}
+
+	private overlay: HTMLElement | null = null; // gesture overlay
 
 	private canvas: HTMLCanvasElement | null = null;
 	private ctx: CanvasRenderingContext2D | null = null;
@@ -101,23 +218,21 @@ export default class GestureNav extends Plugin {
 
 	private registerEvents(currentWindow: Window) {
 		const doc: Document = currentWindow.document;
+		this.registeredDocs.add(doc);
 
-		// Prevent default right-click context menu
-		function preventDefault(event) {
+		const contextMenuBlocker = (event: MouseEvent) => {
 			const target = event.target as HTMLElement;
-			if (target.closest('.workspace-leaf')?.classList.contains('nav-folder')) {
+			if (
+				target.closest('.workspace-leaf')?.classList.contains('nav-folder')
+			) {
 				return;
-			}		
+			}
 			if (event.isTrusted) {
 				event.preventDefault();
 				event.stopPropagation();
 			}
-		}
-		// doc.addEventListener('contextmenu', preventDefault, true);
-
-		let startClientX = 0;
-		let startClientY = 0;
-		const gesture_margin = 75;
+		};
+		this.contextMenuBlocker = contextMenuBlocker;
 
 		// Detect when the right mouse button is pressed
 		this.registerDomEvent(doc, 'mousedown', (evt: MouseEvent) => {
@@ -126,14 +241,30 @@ export default class GestureNav extends Plugin {
 			}
 			if (evt.button === this.settings.trigerkey) {
 				if (isEditMode(this.getCurrentViewOfType())) {
-					doc.addEventListener('contextmenu', preventDefault, true);
+					doc.addEventListener(
+						'contextmenu',
+						contextMenuBlocker,
+						true,
+					);
 					this.startDrawing(evt);
 					globalMouseDown = true;
-					startClientX = evt.clientX;
-					startClientY = evt.clientY;
-					this.currentGesture = null; // Reset the gesture
-				} else {
-					doc.removeEventListener('contextmenu', preventDefault, true);
+					if (this.isModernEngine()) {
+						this.gestureCanceled = false;
+						this.completedGestureType = null;
+						this.completedPoint = null;
+						this.recognizedGesture = false;
+						this.gestureStarted = false;
+						this.recognizer.start(evt.clientX, evt.clientY);
+					} else {
+						this.legacyStartPoint = {
+							x: evt.clientX,
+							y: evt.clientY,
+						};
+						this.legacyCurrentGesture = null;
+					}
+				}
+				else {
+					doc.removeEventListener('contextmenu', contextMenuBlocker, true);
 				}
 			}
 		});
@@ -144,31 +275,68 @@ export default class GestureNav extends Plugin {
 				this.draw(evt.clientX, evt.clientY);
 			}
 			if (globalMouseDown) {
-				const deltaX = evt.clientX - startClientX;
-				const deltaY = evt.clientY - startClientY;
-				let detectedGesture: 'left' | 'right' | 'up' | 'down' | null =
-					null;
+				if (!this.isModernEngine()) {
+					if (!this.legacyStartPoint) return;
+					const gestureMargin = 75;
+					const deltaX = evt.clientX - this.legacyStartPoint.x;
+					const deltaY = evt.clientY - this.legacyStartPoint.y;
+					let detectedGesture: 'left' | 'right' | 'up' | 'down' | null =
+						null;
+					if (
+						Math.abs(deltaX) > gestureMargin &&
+						Math.abs(deltaY) < gestureMargin
+					) {
+						detectedGesture = deltaX > 0 ? 'right' : 'left';
+					} else if (
+						Math.abs(deltaY) > gestureMargin &&
+						Math.abs(deltaX) < gestureMargin
+					) {
+						detectedGesture = deltaY > 0 ? 'down' : 'up';
+					}
+					if (detectedGesture !== this.legacyCurrentGesture) {
+						this.legacyCurrentGesture = detectedGesture;
+						if (detectedGesture) {
+							this.showGestureOverlayByPattern([detectedGesture]);
+						} else {
+							this.hideGestureOverlay();
+						}
+					}
+					return;
+				}
 
-				// Detect horizontal gestures (left/right)
-				if (
-					Math.abs(deltaX) > gesture_margin &&
-					Math.abs(deltaY) < gesture_margin
-				) {
-					detectedGesture = deltaX > 0 ? 'right' : 'left';
+				if (this.gestureCanceled) {
+					this.showGestureOverlay('✕', this.getStrings().common.cancel);
+					return;
 				}
-				// Detect vertical gestures (up/down)
-				else if (
-					Math.abs(deltaY) > gesture_margin &&
-					Math.abs(deltaX) < gesture_margin
-				) {
-					detectedGesture = deltaY > 0 ? 'down' : 'up';
-				}
+				this.recognizer.track(evt.clientX, evt.clientY, (segments) => {
+					if (!this.gestureStarted && segments.length > 0) {
+						this.gestureStarted = true;
+					}
 
-				// If gesture has changed, update the overlay
-				if (detectedGesture !== this.currentGesture) {
-					this.currentGesture = detectedGesture;
-					this.showGestureOverlay(this.currentGesture); // Update overlay with the new gesture
-				}
+					if (segments.length === 2 && !this.completedGestureType) {
+						this.completedGestureType = 'two';
+						this.completedPoint = { x: evt.clientX, y: evt.clientY };
+						this.recognizedGesture = true;
+					}
+
+					if (
+						this.completedGestureType === 'two' &&
+						segments.length > 2
+					) {
+						this.cancelGesture();
+						return;
+					}
+
+					if (segments.length >= 2) {
+						const pattern = this.recognizer.finish();
+						if (pattern.length > 0) {
+							this.showGestureOverlayByPattern(pattern);
+							return;
+						}
+					}
+
+					this.showGestureOverlayBySegments(segments);
+				});
 			}
 		});
 
@@ -177,46 +345,50 @@ export default class GestureNav extends Plugin {
 			this.stopDrawing();
 			if (evt.button === this.settings.trigerkey) {
 				globalMouseDown = false;
-				// new Notice('Right Mouse Key UP!! Position: ' + evt.clientX + ' ' + evt.clientY);
+				if (!this.isModernEngine()) {
+					if (this.legacyCurrentGesture) {
+						this.showGestureOverlayByPattern([this.legacyCurrentGesture]);
+						this.executeActionForPattern([this.legacyCurrentGesture]);
+					} else {
+						this.showContextMenu(evt);
+					}
+					this.hideGestureOverlay();
+					this.legacyCurrentGesture = null;
+					this.legacyStartPoint = null;
+					return;
+				}
 
-				// Execute actions based on the detected gesture
-				if (this.currentGesture === 'right') {
-					this.executeGestureAction('right', () =>
-						window.history.forward(),
-					);
-				} else if (this.currentGesture === 'left') {
-					this.executeGestureAction('left', () =>
-						window.history.back(),
-					);
-				} else if (this.currentGesture === 'down') {
-					this.executeGestureAction(
-						'down',
-						this.scrollToBottom.bind(this),
-					);
-				} else if (this.currentGesture === 'up') {
-					this.executeGestureAction(
-						'up',
-						this.scrollToTop.bind(this),
-					);
-				} else {
+				const pattern = this.recognizer.finish();
+				const allowContextMenu =
+					(this.gestureCanceled &&
+						(!this.recognizedGesture ||
+							this.settings.showContextMenuOnCancel)) ||
+					(!this.gestureCanceled &&
+						pattern.length === 0 &&
+						!this.gestureStarted);
+
+				if (allowContextMenu) {
+					// const markdownView = this.getCurrentViewOfType();
 					// this.selectTextUnderCursor(evt);
 					this.showContextMenu(evt);
-					// doc.elementFromPoint(
-					// 	evt.clientX,
-					// 	evt.clientY,
-					// ).dispatchEvent(
-					// 	new MouseEvent('contextmenu', {
-					// 		bubbles: true,
-					// 		cancelable: true,
-					// 		clientX: evt.clientX,
-					// 		clientY: evt.clientY,
-					// 	}),
-					// );
 				}
-				this.currentGesture = null; // Reset gesture on mouse up
-				if (this.overlay) {
-					this.overlay.remove(); // Remove overlay when mouse is released
+
+				if (this.gestureCanceled) {
+					this.hideGestureOverlay();
+					this.completedGestureType = null;
+					this.completedPoint = null;
+					this.recognizedGesture = false;
+					return;
 				}
+
+				if (pattern.length !== 0) {
+					this.showGestureOverlayByPattern(pattern);
+					this.executeActionForPattern(pattern);
+				}
+
+				this.hideGestureOverlay();
+				this.recognizedGesture = false;
+				this.gestureStarted = false;
 			}
 		});
 	}
@@ -288,16 +460,6 @@ export default class GestureNav extends Plugin {
 		}
 	}
 	
-	// Execute gesture actions and show the overlay
-	private executeGestureAction(
-		gesture: 'left' | 'right' | 'up' | 'down',
-		action: () => void,
-	) {
-		this.showGestureOverlay(gesture);
-		action();
-	}
-
-
 	private showContextMenu(evt: MouseEvent) {
 		const markdownView = this.getCurrentViewOfType();
 		if (isEditMode(markdownView)) {
@@ -309,7 +471,9 @@ export default class GestureNav extends Plugin {
 
 	private showEditModeContextMenu(evt: MouseEvent) {
 		const doc = document;
-		doc.elementFromPoint(evt.clientX, evt.clientY).dispatchEvent(
+		const target = doc.elementFromPoint(evt.clientX, evt.clientY);
+		if (!target) return;
+		target.dispatchEvent(
 			new MouseEvent('contextmenu', {
 				bubbles: true,
 				cancelable: true,
@@ -320,7 +484,9 @@ export default class GestureNav extends Plugin {
 	}
 
 	private isSettingsVisible(): boolean {
-		const settingTabs = document.querySelector('.modal-container');
+		const settingTabs = document.querySelector(
+			'.modal-container',
+		) as HTMLElement | null;
 		return settingTabs !== null && settingTabs.style.display !== 'none';
 	}
 
@@ -329,10 +495,10 @@ export default class GestureNav extends Plugin {
 	}	
 
 	private showPreviewContextMenu(evt: MouseEvent) {
-		// TODO: Implement original context menu in preview mode
+		this.showEditModeContextMenu(evt);
 	}
 
-	private showGestureOverlay(gesture: 'left' | 'right' | 'up' | 'down') {
+	private showGestureOverlay(icon: string, actionText: string) {
 		if (this.overlay) {
 			this.overlay.remove();
 		}
@@ -340,28 +506,9 @@ export default class GestureNav extends Plugin {
 		this.overlay = document.createElement('div');
 		this.overlay.classList.add('gesture-overlay');
 	
-		let arrowSymbol = '';
-		let actionText = '';
-		if (gesture === 'right') {
-			arrowSymbol = '→'; // Right arrow
-			actionText = 'Next page';
-		} else if (gesture === 'left') {
-			arrowSymbol = '←'; // Left arrow
-			actionText = 'Previous page';
-		} else if (gesture === 'up') {
-			arrowSymbol = '↑'; // Up arrow
-			actionText = 'Scroll to top';
-		} else if (gesture === 'down') {
-			arrowSymbol = '↓'; // Down arrow
-			actionText = 'Scroll to bottom';
-		} else {
-			arrowSymbol = '✕'; // Cancel symbol
-			this.overlay.classList.add('gesture-overlay-cancel'); // Extra class for cancel symbol
-		}
-	
 		// Add the arrow symbol to the overlay
 		const arrow = document.createElement('div');
-		arrow.innerText = arrowSymbol;
+		arrow.innerText = icon;
 		this.overlay.appendChild(arrow);
 	
 		// Add text below the arrow based on gesture direction
@@ -371,6 +518,80 @@ export default class GestureNav extends Plugin {
 		this.overlay.appendChild(text);
 	
 		document.body.appendChild(this.overlay);
+	}
+
+	private hideGestureOverlay() {
+		if (this.overlay) {
+			this.overlay.remove();
+			this.overlay = null;
+		}
+	}
+
+	private showGestureOverlayBySegments(segments: string[]) {
+		if (segments.length === 0) {
+			this.hideGestureOverlay();
+			return;
+		}
+		if (segments.length > 2) {
+			// Repeat gestures are only shown on mouseup
+			return;
+		}
+		const key = segments.join(',');
+		const meta = this.getGestureMeta(key);
+		if (!meta) {
+			this.showGestureOverlay('✕', this.getStrings().common.cancel);
+			return;
+		}
+		const actionLabel = this.getActionLabel(this.getActionForKey(key));
+		this.showGestureOverlay(meta.icon, actionLabel);
+	}
+
+	private showGestureOverlayByPattern(pattern: GesturePattern) {
+		const key = pattern.join(',');
+		const meta = this.getGestureMeta(key);
+		if (!meta) {
+			this.showGestureOverlay('✕', this.getStrings().common.cancel);
+			return;
+		}
+		const actionLabel = this.getActionLabel(this.getActionForKey(key));
+		this.showGestureOverlay(meta.icon, actionLabel);
+	}
+
+	private getGestureMeta(key: string) {
+		return GESTURE_META.find((meta) => meta.key === key);
+	}
+
+
+	private cancelGesture() {
+		this.gestureCanceled = true;
+		this.showGestureOverlay('✕', this.getStrings().common.cancel);
+	}
+
+	private getActionForPattern(pattern: GesturePattern): ActionId {
+		return this.getActionForKey(pattern.join(','));
+	}
+
+	private getActionForKey(key: string): ActionId {
+		return this.settings.gestureBindings[key] ?? 'none';
+	}
+
+	private getActionLabel(actionId: ActionId) {
+		const strings = this.getStrings();
+		return strings.actionLabels[actionId] ?? strings.actionLabels.none;
+	}
+
+	public getCustomCommandId(key: string) {
+		return this.settings.customCommandIds[key] ?? '';
+	}
+
+	public getGestureLabel(key: string) {
+		const strings = this.getStrings();
+		const labels = strings.gestureLabels as Record<string, string>;
+		return labels[key] ?? key;
+	}
+
+	private getStrings() {
+		return getStrings(this.settings.language);
 	}
 	
 
@@ -404,6 +625,141 @@ export default class GestureNav extends Plugin {
 		if (markdownView === null) return;
 		markdownView.currentMode.applyScroll(Number.MAX_SAFE_INTEGER);
 	};
+
+	private navigateSibling(delta: number) {
+		const currentFile = this.app.workspace.getActiveFile();
+		if (!currentFile) return;
+		const folder = currentFile.parent;
+		if (!folder) return;
+		const files = this.app.vault
+			.getMarkdownFiles()
+			.filter((file) => file.parent === folder)
+			.sort((a, b) => a.basename.localeCompare(b.basename));
+
+		const currentIndex = files.findIndex(
+			(file) => file.path === currentFile.path,
+		);
+		if (currentIndex === -1 || files.length < 2) return;
+		const nextIndex = (currentIndex + delta + files.length) % files.length;
+		this.app.workspace.openLinkText(
+			files[nextIndex].path,
+			currentFile.path,
+			false,
+		);
+	}
+
+	private cycleTab(delta: number) {
+		const activeLeaf = this.app.workspace.activeLeaf;
+		if (!activeLeaf) return;
+
+		const parent: any = (activeLeaf as any).parent;
+		const siblingLeaves: any[] = Array.isArray(parent?.children)
+			? parent.children
+			: [];
+
+		if (siblingLeaves.length > 1) {
+			const activeIndex = siblingLeaves.findIndex(
+				(leaf) => leaf === activeLeaf,
+			);
+			if (activeIndex === -1) return;
+			const nextIndex =
+				(activeIndex + delta + siblingLeaves.length) %
+				siblingLeaves.length;
+			this.app.workspace.setActiveLeaf(
+				siblingLeaves[nextIndex],
+				true,
+				true,
+			);
+			return;
+		}
+
+		// fallback: same view type
+			const viewType = (
+				activeLeaf as unknown as { getViewType: () => string }
+			).getViewType();
+		const leaves = this.app.workspace.getLeavesOfType(viewType);
+		const activeIndex = leaves.findIndex((leaf) => leaf === activeLeaf);
+		if (activeIndex === -1 || leaves.length < 2) return;
+		const nextIndex = (activeIndex + delta + leaves.length) % leaves.length;
+		this.app.workspace.setActiveLeaf(leaves[nextIndex], true, true);
+	}
+
+	private openNewTab() {
+		if (this.settings.newTabBehavior === 'empty') {
+			this.openEmptyTab();
+			return;
+		}
+		const activeLeaf = this.app.workspace.activeLeaf;
+		if (this.settings.newTabBehavior === 'current') {
+			if (activeLeaf) {
+				this.app.workspace.duplicateLeaf(activeLeaf, 'tab');
+			} else {
+				this.openEmptyTab();
+			}
+			return;
+		}
+		this.createNewNoteInTab();
+	}
+
+	private openEmptyTab() {
+		try {
+			const leaf = this.app.workspace.getLeaf('tab');
+			leaf.setViewState({ type: 'empty', state: {} });
+			return;
+		} catch {
+			this.app.workspace.openLinkText('', '', 'tab');
+		}
+	}
+
+	private async createNewNoteInTab() {
+		const folder = this.resolveNewNoteFolder();
+		const file = await this.createUniqueMarkdownFile(
+			folder?.path ?? '',
+			'Untitled',
+		);
+		if (!file) return;
+		this.app.workspace.openLinkText(file.path, '', 'tab');
+	}
+
+	private resolveNewNoteFolder() {
+		const fm = (this.app as any).fileManager;
+		if (fm?.getNewFileParent) {
+			const currentPath = this.app.workspace.getActiveFile()?.path ?? '';
+			return fm.getNewFileParent(currentPath);
+		}
+		return this.app.vault.getRoot();
+	}
+
+	private async createUniqueMarkdownFile(folderPath: string, baseName: string) {
+		const normalized = folderPath ? folderPath.replace(/\/+$/, '') : '';
+		const prefix = normalized ? `${normalized}/` : '';
+		let attempt = 0;
+		while (attempt < 200) {
+			const suffix = attempt === 0 ? '' : ` ${attempt}`;
+			const filename = `${prefix}${baseName}${suffix}.md`;
+			const exists = this.app.vault.getAbstractFileByPath(filename);
+			if (!exists) {
+				try {
+					return await this.app.vault.create(filename, '');
+				} catch {
+					// continue
+				}
+			}
+			attempt += 1;
+		}
+		return null;
+	}
+
+	private getGestureActionContext() {
+		return {
+			app: this.app,
+			scrollToTop: this.scrollToTop.bind(this),
+			scrollToBottom: this.scrollToBottom.bind(this),
+			navigateSibling: this.navigateSibling.bind(this),
+			cycleTab: this.cycleTab.bind(this),
+			openNewTab: this.openNewTab.bind(this),
+		};
+	}
 }
 
 
@@ -420,26 +776,49 @@ class GestureNavSettingTab extends PluginSettingTab {
 
 		containerEl.empty();
 
+		const strings = getStrings(this.plugin.settings.language);
+
+		containerEl.createEl('h3', { text: strings.sections.appearance });
+
 		new Setting(containerEl)
-			.setName('Triger mouse key')
-			.setDesc('Select the mouse key to trigger the gesture')
+			.setName(strings.settings.language.name)
+			.setDesc(strings.settings.language.desc)
 			.addDropdown((dropdown) =>
 				dropdown
 					.addOptions({
-						[TrigerKey.RIGHT_CLICK]: 'Right click',
-						// [TrigerKey.WHEEL_CLICK]: 'Wheel click',
+						en: getStrings('en').languageName,
+						ko: getStrings('ko').languageName,
 					})
-					.setValue(this.plugin.settings.trigerkey)
+					.setValue(this.plugin.settings.language)
 					.onChange(async (value) => {
-						this.plugin.settings.trigerkey = value as TrigerKey;
+						this.plugin.settings.language = value as Locale;
+						await this.plugin.saveSettings();
+						this.display();
+					}),
+			);
+
+		new Setting(containerEl)
+			.setName(strings.settings.triggerKey.name)
+			.setDesc(strings.settings.triggerKey.desc)
+			.addDropdown((dropdown) =>
+				dropdown
+					.addOptions({
+						[TrigerKey.RIGHT_CLICK]:
+							strings.settings.triggerKey.options.rightClick,
+						// [TrigerKey.WHEEL_CLICK]:
+						// 	strings.settings.triggerKey.options.wheelClick,
+					})
+					.setValue(String(this.plugin.settings.trigerkey))
+					.onChange(async (value) => {
+						this.plugin.settings.trigerkey = Number(value) as TrigerKey;
 						await this.plugin.saveSettings();
 					}),
 			);
 
 		// Drawing toggle
 		new Setting(containerEl)
-			.setName('Enable drawing')
-			.setDesc('Toggle to enable or disable gesture drawing on the screen')
+			.setName(strings.settings.enableDrawing.name)
+			.setDesc(strings.settings.enableDrawing.desc)
 			.addToggle((toggle) =>
 				toggle
 					.setValue(this.plugin.settings.enableDrawing)
@@ -451,8 +830,8 @@ class GestureNavSettingTab extends PluginSettingTab {
 
 		// Stroke color settings
 		new Setting(containerEl)
-			.setName('Stroke color')
-			.setDesc('Select the color for the gesture stroke')
+			.setName(strings.settings.strokeColor.name)
+			.setDesc(strings.settings.strokeColor.desc)
 			.addDropdown((dropdown) => {
 				dropdown
 					.addOptions({
@@ -477,8 +856,8 @@ class GestureNavSettingTab extends PluginSettingTab {
 
 		// Custom color input
 		const customColorSetting = new Setting(containerEl)
-			.setName('Custom stroke color')
-			.setDesc('Enter a custom color (hex or valid CSS color)')
+			.setName(strings.settings.customStrokeColor.name)
+			.setDesc(strings.settings.customStrokeColor.desc)
 			.addText((text) =>
 				text
 					.setPlaceholder('#000000')
@@ -492,8 +871,8 @@ class GestureNavSettingTab extends PluginSettingTab {
 	
 		// Line width setting
 		new Setting(containerEl)
-			.setName('Line width')
-			.setDesc('Set the thickness of the gesture stroke')
+			.setName(strings.settings.lineWidth.name)
+			.setDesc(strings.settings.lineWidth.desc)
 			.addSlider((slider) =>
 				slider
 					.setLimits(1, 10, 1) // Set range between 1 and 10
@@ -503,5 +882,181 @@ class GestureNavSettingTab extends PluginSettingTab {
 						await this.plugin.saveSettings();
 					}),
 			);
+
+		containerEl.createEl('h3', { text: strings.sections.gestures });
+		containerEl.createEl('p', {
+			text: strings.gestureBindings.title,
+		});
+
+		new Setting(containerEl)
+			.setName(strings.gestureBindings.resetName)
+			.setDesc(strings.gestureBindings.resetDesc)
+			.addButton((button) =>
+				button.setButtonText(strings.gestureBindings.resetButton).onClick(async () => {
+					this.plugin.settings.gestureBindings = {
+						...DEFAULT_GESTURE_BINDINGS,
+					};
+					await this.plugin.saveSettings();
+					this.display();
+				}),
+			);
+
+		const actionOptions = ACTION_IDS.reduce(
+			(acc, action) => {
+				acc[action] = strings.actionLabels[action];
+				return acc;
+			},
+			{} as Record<string, string>,
+		);
+
+		for (const meta of GESTURE_META) {
+			const row = new Setting(containerEl)
+				.setName(`${meta.icon}  ${this.plugin.getGestureLabel(meta.key)}`)
+				.addDropdown((dropdown) =>
+					dropdown
+						.addOptions(actionOptions)
+						.setValue(
+							this.plugin.settings.gestureBindings[meta.key] ?? 'none',
+						)
+						.onChange(async (value) => {
+							this.plugin.settings.gestureBindings[meta.key] =
+								value as ActionId;
+							await this.plugin.saveSettings();
+							this.display();
+						}),
+				);
+
+			if (this.plugin.settings.gestureBindings[meta.key] === 'custom-command') {
+				row.addText((text) =>
+					text
+						.setPlaceholder('command:id')
+						.setValue(this.plugin.getCustomCommandId(meta.key))
+						.onChange(async (value) => {
+							this.plugin.settings.customCommandIds[meta.key] = value.trim();
+							await this.plugin.saveSettings();
+						}),
+				);
+				row.setDesc(strings.settings.customCommandWarning);
+			}
+		}
+
+		containerEl.createEl('h3', { text: strings.sections.actions });
+		new Setting(containerEl)
+			.setName(strings.settings.gestureEngine.name)
+			.setDesc(strings.settings.gestureEngine.desc)
+			.addDropdown((dropdown) =>
+				dropdown
+					.addOptions({
+						'modern-v2': strings.settings.gestureEngine.options.modern,
+						'legacy-v1': strings.settings.gestureEngine.options.legacy,
+					})
+					.setValue(this.plugin.settings.gestureEngine)
+					.onChange(async (value) => {
+						this.plugin.settings.gestureEngine = value as GestureEngine;
+						await this.plugin.saveSettings();
+					}),
+			);
+
+		new Setting(containerEl)
+			.setName(strings.settings.newTabBehavior.name)
+			.setDesc(strings.settings.newTabBehavior.desc)
+			.addDropdown((dropdown) =>
+				dropdown
+					.addOptions({
+						empty: strings.settings.newTabBehavior.options.empty,
+						current: strings.settings.newTabBehavior.options.current,
+						'new-note':
+							strings.settings.newTabBehavior.options.newNote,
+					})
+					.setValue(this.plugin.settings.newTabBehavior)
+					.onChange(async (value) => {
+						this.plugin.settings.newTabBehavior = value as NewTabBehavior;
+						await this.plugin.saveSettings();
+						this.display();
+					}),
+			);
+
+		new Setting(containerEl)
+			.setName(strings.settings.showContextMenuOnCancel.name)
+			.setDesc(strings.settings.showContextMenuOnCancel.desc)
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.showContextMenuOnCancel)
+					.onChange(async (value) => {
+						this.plugin.settings.showContextMenuOnCancel = value;
+						await this.plugin.saveSettings();
+					}),
+			);
+
+		new Setting(containerEl)
+			.setName(strings.settings.debugMode.name)
+			.setDesc(strings.settings.debugMode.desc)
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.debugMode)
+					.onChange(async (value) => {
+						this.plugin.settings.debugMode = value;
+						await this.plugin.saveSettings();
+						this.display();
+					}),
+			);
+
+		if (this.plugin.settings.debugMode) {
+			containerEl.createEl('h3', { text: strings.debug.commandsTitle });
+			containerEl.createEl('p', { text: strings.debug.requestNote });
+
+			const searchSetting = new Setting(containerEl)
+				.setName(strings.debug.searchLabel)
+				.setDesc(strings.debug.searchDesc);
+
+			const resultsContainer = containerEl.createDiv({
+				cls: 'gesture-command-results',
+			});
+
+			const renderResults = (query: string) => {
+				resultsContainer.empty();
+				const q = query.trim().toLowerCase();
+				const commandsApi = (this.app as App & {
+					commands?: { listCommands: () => Array<{ id: string; name: string }> };
+				}).commands;
+				const commands = (commandsApi?.listCommands() ?? [])
+					.filter((cmd: { id: string; name: string }) => {
+						if (!q) return true;
+						return (
+							cmd.name.toLowerCase().includes(q) ||
+							cmd.id.toLowerCase().includes(q)
+						);
+					})
+					.slice(0, 100);
+
+				if (commands.length === 0) {
+					resultsContainer.createEl('div', {
+						text: strings.debug.noResults,
+						cls: 'gesture-command-empty',
+					});
+					return;
+				}
+
+				for (const cmd of commands) {
+					const row = resultsContainer.createDiv({
+						cls: 'gesture-command-row',
+					});
+					row.createEl('div', { text: cmd.id, cls: 'gesture-command-id' });
+					row.createEl('div', {
+						text: cmd.name,
+						cls: 'gesture-command-name',
+					});
+				}
+			};
+
+			searchSetting.addText((text) =>
+				text
+					.setPlaceholder(strings.debug.searchPlaceholder)
+					.onChange((value) => renderResults(value)),
+			);
+
+			renderResults('');
+		}
+
 	}
 }
