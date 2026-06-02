@@ -70,6 +70,23 @@ interface CommandApi {
   executeCommandById: (id: string) => unknown;
 }
 
+interface ElectronRemoteWindow {
+  minimize(): void;
+  maximize(): void;
+  unmaximize(): void;
+  isMaximized(): boolean;
+  setFullScreen(fullscreen: boolean): void;
+  isFullScreen(): boolean;
+}
+
+interface ElectronWindow extends Window {
+  require?: (module: 'electron') => {
+    remote?: {
+      getCurrentWindow?: () => ElectronRemoteWindow;
+    };
+  };
+}
+
 const tryWithNotice = (label: string, fn: () => void) => {
   try {
     fn();
@@ -83,7 +100,7 @@ const tryWithNotice = (label: string, fn: () => void) => {
 
 const getCurrentWindow = () => {
   try {
-    const electron = (window as any).require?.('electron');
+    const electron = (window as ElectronWindow).require?.('electron');
     return electron?.remote?.getCurrentWindow?.() ?? null;
   } catch (err) {
     // eslint-disable-next-line no-console
@@ -145,7 +162,7 @@ export const ACTION_TABLE: Record<ActionId, Action> = {
   'cycle-tab-left': (ctx) => tryWithNotice('tab left', () => ctx.cycleTab(-1)),
   'cycle-tab-right': (ctx) => tryWithNotice('tab right', () => ctx.cycleTab(1)),
   'close-tab': (ctx) =>
-    tryWithNotice('close tab', () => ctx.app.workspace.activeLeaf?.detach()),
+    tryWithNotice('close tab', () => ctx.app.workspace.getLeaf(false).detach()),
   'reopen-closed-tab': (ctx) =>
     tryWithNotice('reopen closed tab', () =>
       runCommand(ctx.app, 'workspace:undo-close-pane'),

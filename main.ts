@@ -4,6 +4,8 @@ import {
 	Plugin,
 	PluginSettingTab,
 	Setting,
+	TFolder,
+	WorkspaceLeaf,
 	WorkspaceWindow,
 } from 'obsidian';
 import { GestureRecognizer } from './gesture/recognizer';
@@ -37,6 +39,16 @@ enum TrigerKey {
 
 type NewTabBehavior = 'empty' | 'current' | 'new-note';
 type GestureEngine = 'legacy-v1' | 'modern-v2';
+type WorkspaceLeafWithParent = WorkspaceLeaf & {
+	parent?: {
+		children?: WorkspaceLeaf[];
+	};
+};
+type AppWithFileManager = App & {
+	fileManager?: {
+		getNewFileParent(path: string): TFolder;
+	};
+};
 
 const DEFAULT_SETTINGS: GestureNavSettings = {
 	trigerkey: TrigerKey.RIGHT_CLICK,
@@ -99,7 +111,6 @@ const isEditMode = (markdownView: MarkdownView | null) => {
 	return mode === 'source' && markdownView.editor !== null;
 };
 
-let globalMarkdownView: MarkdownView | null = null;
 let globalMouseDown = false;
 
 export default class GestureNav extends Plugin {
@@ -133,20 +144,17 @@ export default class GestureNav extends Plugin {
 	}
 
 	onunload() {
-		// Remove the canvas if it exists
 		if (this.canvas) {
-			document.body.removeChild(this.canvas);
+			this.canvas.remove();
 			this.canvas = null;
 			this.ctx = null;
 		}
 
-		// Remove the overlay if it exists
 		if (this.overlay) {
 			this.overlay.remove();
 			this.overlay = null;
 		}
 
-		// Reset drawing state
 		this.drawing = false;
 	}
 
@@ -399,21 +407,23 @@ export default class GestureNav extends Plugin {
 		}
 
 		this.drawing = true;
+		const doc = evt.view?.document ?? activeDocument;
+		const win = doc.defaultView ?? activeWindow;
 	
 		// Create a canvas if it doesn't exist
 		if (!this.canvas) {
-			this.canvas = document.createElement('canvas');
+			this.canvas = createEl('canvas');
 			this.canvas.classList.add('gesture-canvas'); 
 	
-			this.canvas.width = window.innerWidth;
-			this.canvas.height = window.innerHeight;
+			this.canvas.width = win.innerWidth;
+			this.canvas.height = win.innerHeight;
 	
-			document.body.appendChild(this.canvas);
+			doc.body.appendChild(this.canvas);
 			this.ctx = this.canvas.getContext('2d') as CanvasRenderingContext2D;
 	
 			let strokeColor = this.settings.strokeColor;
 			if (strokeColor === 'accent') {
-				const obsidianStyles = getComputedStyle(document.body);
+				const obsidianStyles = win.getComputedStyle(doc.body);
 				strokeColor = obsidianStyles.getPropertyValue('--interactive-accent').trim();
 			} else if (strokeColor === 'custom') {
 				strokeColor = this.settings.customStrokeColor || '#000000'; // Fallback to black if custom color is not provided
@@ -454,7 +464,7 @@ export default class GestureNav extends Plugin {
 	
 		this.drawing = false;
 		if (this.canvas) {
-			document.body.removeChild(this.canvas);
+			this.canvas.remove();
 			this.canvas = null;
 			this.ctx = null;
 		}
@@ -470,7 +480,7 @@ export default class GestureNav extends Plugin {
 	}
 
 	private showEditModeContextMenu(evt: MouseEvent) {
-		const doc = document;
+		const doc = evt.view?.document ?? activeDocument;
 		const target = doc.elementFromPoint(evt.clientX, evt.clientY);
 		if (!target) return;
 		target.dispatchEvent(
@@ -484,7 +494,7 @@ export default class GestureNav extends Plugin {
 	}
 
 	private isSettingsVisible(): boolean {
-		const settingTabs = document.querySelector(
+		const settingTabs = activeDocument.querySelector(
 			'.modal-container',
 		) as HTMLElement | null;
 		return settingTabs !== null && settingTabs.style.display !== 'none';
@@ -498,26 +508,26 @@ export default class GestureNav extends Plugin {
 		this.showEditModeContextMenu(evt);
 	}
 
-	private showGestureOverlay(icon: string, actionText: string) {
+	private showGestureOverlay(icon: string, actionText: string, doc: Document = activeDocument) {
 		if (this.overlay) {
 			this.overlay.remove();
 		}
 	
-		this.overlay = document.createElement('div');
+		this.overlay = createDiv();
 		this.overlay.classList.add('gesture-overlay');
 	
 		// Add the arrow symbol to the overlay
-		const arrow = document.createElement('div');
+		const arrow = createDiv();
 		arrow.innerText = icon;
 		this.overlay.appendChild(arrow);
 	
 		// Add text below the arrow based on gesture direction
-		const text = document.createElement('div');
+		const text = createDiv();
 		text.innerText = actionText;
 		text.classList.add('gesture-text');
 		this.overlay.appendChild(text);
 	
-		document.body.appendChild(this.overlay);
+		doc.body.appendChild(this.overlay);
 	}
 
 	private hideGestureOverlay() {
@@ -595,9 +605,9 @@ export default class GestureNav extends Plugin {
 	}
 	
 
-	public getCurrentViewOfType() {
+	public getCurrentViewOfType(): MarkdownView | null {
 		// get the current active view
-		let markdownView = this.app.workspace.getActiveViewOfType(MarkdownView);
+		const markdownView = this.app.workspace.getActiveViewOfType(MarkdownView);
 		// // To distinguish whether the current view is hidden or not markdownView
 		// const currentView = this.app.workspace.getActiveViewOfType(
 		// 	View,
@@ -649,12 +659,12 @@ export default class GestureNav extends Plugin {
 	}
 
 	private cycleTab(delta: number) {
-		const activeLeaf = this.app.workspace.activeLeaf;
-		if (!activeLeaf) return;
+		const activeLeaf = this.app.workspace.getLeaf(false);
 
-		const parent: any = (activeLeaf as any).parent;
-		const siblingLeaves: any[] = Array.isArray(parent?.children)
-			? parent.children
+		const parent = (activeLeaf as WorkspaceLeafWithParent).parent;
+		const children = parent?.children;
+		const siblingLeaves: WorkspaceLeaf[] = Array.isArray(children)
+			? children
 			: [];
 
 		if (siblingLeaves.length > 1) {
@@ -665,23 +675,21 @@ export default class GestureNav extends Plugin {
 			const nextIndex =
 				(activeIndex + delta + siblingLeaves.length) %
 				siblingLeaves.length;
-			this.app.workspace.setActiveLeaf(
-				siblingLeaves[nextIndex],
-				true,
-				true,
-			);
+			const nextLeaf = siblingLeaves[nextIndex];
+			if (!nextLeaf) return;
+			this.app.workspace.setActiveLeaf(nextLeaf, { focus: true });
 			return;
 		}
 
 		// fallback: same view type
-			const viewType = (
-				activeLeaf as unknown as { getViewType: () => string }
-			).getViewType();
+		const viewType = activeLeaf.view.getViewType();
 		const leaves = this.app.workspace.getLeavesOfType(viewType);
 		const activeIndex = leaves.findIndex((leaf) => leaf === activeLeaf);
 		if (activeIndex === -1 || leaves.length < 2) return;
 		const nextIndex = (activeIndex + delta + leaves.length) % leaves.length;
-		this.app.workspace.setActiveLeaf(leaves[nextIndex], true, true);
+		const nextLeaf = leaves[nextIndex];
+		if (!nextLeaf) return;
+		this.app.workspace.setActiveLeaf(nextLeaf, { focus: true });
 	}
 
 	private openNewTab() {
@@ -689,13 +697,9 @@ export default class GestureNav extends Plugin {
 			this.openEmptyTab();
 			return;
 		}
-		const activeLeaf = this.app.workspace.activeLeaf;
 		if (this.settings.newTabBehavior === 'current') {
-			if (activeLeaf) {
-				this.app.workspace.duplicateLeaf(activeLeaf, 'tab');
-			} else {
-				this.openEmptyTab();
-			}
+			const activeLeaf = this.app.workspace.getLeaf(false);
+			this.app.workspace.duplicateLeaf(activeLeaf, 'tab');
 			return;
 		}
 		this.createNewNoteInTab();
@@ -722,7 +726,7 @@ export default class GestureNav extends Plugin {
 	}
 
 	private resolveNewNoteFolder() {
-		const fm = (this.app as any).fileManager;
+		const fm = (this.app as AppWithFileManager).fileManager;
 		if (fm?.getNewFileParent) {
 			const currentPath = this.app.workspace.getActiveFile()?.path ?? '';
 			return fm.getNewFileParent(currentPath);
