@@ -18,5 +18,8 @@ main.js
 # obsidian
 data.json
 
+# Codex local project notes
+.codex/
+
 # Exclude macOS Finder (System Explorer) View States
 .DS_Store
